@@ -88,11 +88,6 @@ static int psp_v13_0_init_microcode(struct psp_context *psp)
 				return err;
 		}
 		break;
-	case IP_VERSION(13, 0, 6):
-		err = psp_init_sos_microcode(psp, ucode_prefix);
-		if (err)
-			return err;
-		break;
 	case IP_VERSION(13, 0, 1):
 	case IP_VERSION(13, 0, 3):
 	case IP_VERSION(13, 0, 5):
