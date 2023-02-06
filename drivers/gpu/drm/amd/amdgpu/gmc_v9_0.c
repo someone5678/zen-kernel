@@ -1192,6 +1192,7 @@ static void gmc_v9_0_get_coherence_flags(struct amdgpu_device *adev,
 	bool coherent = bo->flags & AMDGPU_GEM_CREATE_COHERENT;
 	bool uncached = bo->flags & AMDGPU_GEM_CREATE_UNCACHED;
 	unsigned int mtype;
+	unsigned int mtype_default;
 	bool snoop = false;
 
 	switch (adev->ip_versions[GC_HWIP][0]) {
@@ -1235,7 +1236,10 @@ static void gmc_v9_0_get_coherence_flags(struct amdgpu_device *adev,
 		/* FIXME: Needs more work for handling multiple memory
 		 * partitions (> NPS1 mode) e.g. NPS4 for both APU and dGPU
 		 * modes.
+		 * FIXME: Temporarily using MTYPE_CC instead of MTYPE_RW where applicable.
+		 * To force use of MTYPE_RW, set use_mtype_cc_wa=0
 		 */
+		mtype_default = amdgpu_use_mtype_cc_wa ? MTYPE_CC : MTYPE_RW;
 		snoop = true;
 		if (uncached) {
 			mtype = MTYPE_UC;
@@ -1250,14 +1254,14 @@ static void gmc_v9_0_get_coherence_flags(struct amdgpu_device *adev,
 			 * socket should be treated as remote access so MTYPE_RW
 			 * cannot be used always.
 			 */
-			mtype = MTYPE_RW;
+			mtype = mtype_default;
 		} else if (adev->flags & AMD_IS_APU) {
 			/* APU on carve out mode */
-			mtype = MTYPE_RW;
+			mtype = mtype_default;
 		} else {
 			/* dGPU */
 			if (is_vram && bo_adev == adev)
-				mtype = MTYPE_RW;
+				mtype = mtype_default;
 			else if (is_vram)
 				mtype = MTYPE_NC;
 			else
