@@ -515,8 +515,7 @@ dc_stream_forward_dmub_crc_window(struct dc_dmub_srv *dmub_srv,
 		cmd.secure_display.roi_info.y_end = rect->y + rect->height;
 	}
 
-	dc_dmub_srv_cmd_queue(dmub_srv, &cmd);
-	dc_dmub_srv_cmd_execute(dmub_srv);
+	dm_execute_dmub_cmd(dmub_srv->ctx, &cmd, DM_DMUB_WAIT_TYPE_NO_WAIT);
 }
 
 static inline void
@@ -3337,7 +3336,6 @@ void dc_dmub_update_dirty_rect(struct dc *dc,
 			       struct dc_state *context)
 {
 	union dmub_rb_cmd cmd;
-	struct dc_context *dc_ctx = dc->ctx;
 	struct dmub_cmd_update_dirty_rect_data *update_dirty_rect;
 	unsigned int i, j;
 	unsigned int panel_inst = 0;
@@ -3378,8 +3376,7 @@ void dc_dmub_update_dirty_rect(struct dc *dc,
 
 			update_dirty_rect->panel_inst = panel_inst;
 			update_dirty_rect->pipe_idx = j;
-			dc_dmub_srv_cmd_queue(dc_ctx->dmub_srv, &cmd);
-			dc_dmub_srv_cmd_execute(dc_ctx->dmub_srv);
+			dm_execute_dmub_cmd(dc->ctx, &cmd, DM_DMUB_WAIT_TYPE_NO_WAIT);
 		}
 	}
 }
@@ -4647,7 +4644,6 @@ bool dc_process_dmub_aux_transfer_async(struct dc *dc,
 {
 	uint8_t action;
 	union dmub_rb_cmd cmd = {0};
-	struct dc_dmub_srv *dmub_srv = dc->ctx->dmub_srv;
 
 	ASSERT(payload->length <= 16);
 
@@ -4695,9 +4691,7 @@ bool dc_process_dmub_aux_transfer_async(struct dc *dc,
 			);
 	}
 
-	dc_dmub_srv_cmd_queue(dmub_srv, &cmd);
-	dc_dmub_srv_cmd_execute(dmub_srv);
-	dc_dmub_srv_wait_idle(dmub_srv);
+	dm_execute_dmub_cmd(dc->ctx, &cmd, DM_DMUB_WAIT_TYPE_WAIT);
 
 	return true;
 }
@@ -4741,7 +4735,6 @@ bool dc_process_dmub_set_config_async(struct dc *dc,
 				struct dmub_notification *notify)
 {
 	union dmub_rb_cmd cmd = {0};
-	struct dc_dmub_srv *dmub_srv = dc->ctx->dmub_srv;
 	bool is_cmd_complete = true;
 
 	/* prepare SET_CONFIG command */
@@ -4752,7 +4745,7 @@ bool dc_process_dmub_set_config_async(struct dc *dc,
 	cmd.set_config_access.set_config_control.cmd_pkt.msg_type = payload->msg_type;
 	cmd.set_config_access.set_config_control.cmd_pkt.msg_data = payload->msg_data;
 
-	if (!dc_dmub_srv_cmd_with_reply_data(dmub_srv, &cmd)) {
+	if (!dm_execute_dmub_cmd(dc->ctx, &cmd, DM_DMUB_WAIT_TYPE_WAIT_WITH_REPLY)) {
 		/* command is not processed by dmub */
 		notify->sc_status = SET_CONFIG_UNKNOWN_ERROR;
 		return is_cmd_complete;
@@ -4787,7 +4780,6 @@ enum dc_status dc_process_dmub_set_mst_slots(const struct dc *dc,
 				uint8_t *mst_slots_in_use)
 {
 	union dmub_rb_cmd cmd = {0};
-	struct dc_dmub_srv *dmub_srv = dc->ctx->dmub_srv;
 
 	/* prepare MST_ALLOC_SLOTS command */
 	cmd.set_mst_alloc_slots.header.type = DMUB_CMD__DPIA;
@@ -4796,7 +4788,7 @@ enum dc_status dc_process_dmub_set_mst_slots(const struct dc *dc,
 	cmd.set_mst_alloc_slots.mst_slots_control.instance = dc->links[link_index]->ddc_hw_inst;
 	cmd.set_mst_alloc_slots.mst_slots_control.mst_alloc_slots = mst_alloc_slots;
 
-	if (!dc_dmub_srv_cmd_with_reply_data(dmub_srv, &cmd))
+	if (!dm_execute_dmub_cmd(dc->ctx, &cmd, DM_DMUB_WAIT_TYPE_WAIT_WITH_REPLY))
 		/* command is not processed by dmub */
 		return DC_ERROR_UNEXPECTED;
 
@@ -4830,14 +4822,11 @@ void dc_process_dmub_dpia_hpd_int_enable(const struct dc *dc,
 				uint32_t hpd_int_enable)
 {
 	union dmub_rb_cmd cmd = {0};
-	struct dc_dmub_srv *dmub_srv = dc->ctx->dmub_srv;
 
 	cmd.dpia_hpd_int_enable.header.type = DMUB_CMD__DPIA_HPD_INT_ENABLE;
 	cmd.dpia_hpd_int_enable.enable = hpd_int_enable;
 
-	dc_dmub_srv_cmd_queue(dmub_srv, &cmd);
-	dc_dmub_srv_cmd_execute(dmub_srv);
-	dc_dmub_srv_wait_idle(dmub_srv);
+	dm_execute_dmub_cmd(dc->ctx, &cmd, DM_DMUB_WAIT_TYPE_WAIT);
 
 	DC_LOG_DEBUG("%s: hpd_int_enable(%d)\n", __func__, hpd_int_enable);
 }
