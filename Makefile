@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0
 VERSION = 6
 PATCHLEVEL = 1
-SUBLEVEL = 9
-EXTRAVERSION = -zen1
+SUBLEVEL = 12
+EXTRAVERSION = -zen
 NAME = Finding Humor In Nothing
 
 # *DOCUMENTATION*
