@@ -387,6 +387,7 @@ static void DISPCLKDPPCLKDCFCLKDeepSleepPrefetchParametersWatermarksAndPerforman
 				mode_lib->vba.NumberOfActiveSurfaces,
 				mode_lib->vba.MALLAllocatedForDCNFinal,
 				mode_lib->vba.UseMALLForStaticScreen,
+				mode_lib->vba.UsesMALLForPStateChange,
 				mode_lib->vba.DCCEnable,
 				mode_lib->vba.ViewportStationary,
 				mode_lib->vba.ViewportXStartY,
@@ -411,6 +412,8 @@ static void DISPCLKDPPCLKDCFCLKDeepSleepPrefetchParametersWatermarksAndPerforman
 				v->BlockWidthC,
 				v->BlockHeightY,
 				v->BlockHeightC,
+				mode_lib->vba.DCCMetaPitchY,
+				mode_lib->vba.DCCMetaPitchC,
 
 				/* Output */
 				v->SurfaceSizeInMALL,
@@ -1636,9 +1639,14 @@ static void DISPCLKDPPCLKDCFCLKDeepSleepPrefetchParametersWatermarksAndPerforman
 static void mode_support_configuration(struct vba_vars_st *v,
 				  struct display_mode_lib *mode_lib)
 {
-	int i, j;
+	int i, j, start_state;
 
-	for (i = v->soc.num_states - 1; i >= 0; i--) {
+	if (mode_lib->validate_max_state)
+		start_state = v->soc.num_states - 1;
+	else
+		start_state = 0;
+
+	for (i = v->soc.num_states - 1; i >= start_state; i--) {
 		for (j = 0; j < 2; j++) {
 			if (mode_lib->vba.ScaleRatioAndTapsSupport == true
 				&& mode_lib->vba.SourceFormatPixelAndScanSupport == true
@@ -1724,6 +1732,7 @@ void dml32_ModeSupportAndSystemConfigurationFull(struct display_mode_lib *mode_l
 		start_state = v->soc.num_states - 1;
 	else
 		start_state = 0;
+
 	/*Scale Ratio, taps Support Check*/
 
 	mode_lib->vba.ScaleRatioAndTapsSupport = true;
@@ -2629,6 +2638,7 @@ void dml32_ModeSupportAndSystemConfigurationFull(struct display_mode_lib *mode_l
 			mode_lib->vba.NumberOfActiveSurfaces,
 			mode_lib->vba.MALLAllocatedForDCNFinal,
 			mode_lib->vba.UseMALLForStaticScreen,
+			mode_lib->vba.UsesMALLForPStateChange,
 			mode_lib->vba.DCCEnable,
 			mode_lib->vba.ViewportStationary,
 			mode_lib->vba.ViewportXStartY,
@@ -2653,6 +2663,8 @@ void dml32_ModeSupportAndSystemConfigurationFull(struct display_mode_lib *mode_l
 			mode_lib->vba.MacroTileWidthC,
 			mode_lib->vba.MacroTileHeightY,
 			mode_lib->vba.MacroTileHeightC,
+			mode_lib->vba.DCCMetaPitchY,
+			mode_lib->vba.DCCMetaPitchC,
 
 			/* Output */
 			mode_lib->vba.SurfaceSizeInMALL,
@@ -3659,7 +3671,7 @@ void dml32_ModeSupportAndSystemConfigurationFull(struct display_mode_lib *mode_l
 
 	MaximumMPCCombine = 0;
 
-	for (i = v->soc.num_states; i >= 0; i--) {
+	for (i = v->soc.num_states; i >= start_state; i--) {
 		if (i == v->soc.num_states || mode_lib->vba.ModeSupport[i][0] == true ||
 				mode_lib->vba.ModeSupport[i][1] == true) {
 			mode_lib->vba.VoltageLevel = i;

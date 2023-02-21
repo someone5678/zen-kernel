@@ -22,14 +22,20 @@
  * Authors: AMD
  *
  */
-#ifndef __LINK_HWSS_HPO_DP_H__
-#define __LINK_HWSS_HPO_DP_H__
-
-#include "link_hwss.h"
-
-bool can_use_hpo_dp_link_hwss(const struct dc_link *link,
-		const struct link_resource *link_res);
-const struct link_hwss *get_hpo_dp_link_hwss(void);
 
 
-#endif /* __LINK_HWSS_HPO_DP_H__ */
+#ifndef __DC_LINK_DP_TRAINING_DPIA_H__
+#define __DC_LINK_DP_TRAINING_DPIA_H__
+#include "link_dp_training.h"
+
+/* Train DP tunneling link for USB4 DPIA display endpoint.
+ * DPIA equivalent of dc_link_dp_perfrorm_link_training.
+ * Aborts link training upon detection of sink unplug.
+ */
+enum link_training_result dc_link_dpia_perform_link_training(
+	struct dc_link *link,
+	const struct link_resource *link_res,
+	const struct dc_link_settings *link_setting,
+	bool skip_video_pattern);
+
+#endif /* __DC_LINK_DP_TRAINING_DPIA_H__ */
