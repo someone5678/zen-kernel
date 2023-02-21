@@ -624,7 +624,7 @@ void amdgpu_fence_driver_sw_fini(struct amdgpu_device *adev)
 		 * The natural check would be sched.ready, which is
 		 * set as drm_sched_init() finishes...
 		 */
-		if (ring->sched.ops)
+		if (!ring->no_scheduler && ring->sched.ops)
 			drm_sched_fini(&ring->sched);
 
 		for (j = 0; j <= ring->fence_drv.num_fences_mask; ++j)

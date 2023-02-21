@@ -34,9 +34,9 @@
 #include "dmub/dmub_srv.h"
 #include "resource.h"
 #include "dsc.h"
-#include "dc_link_dp.h"
 #include "link_hwss.h"
 #include "dc/dc_dmub_srv.h"
+#include "link/protocols/link_dp_capability.h"
 
 #ifdef CONFIG_DRM_AMD_SECURE_DISPLAY
 #include "amdgpu_dm_psr.h"
@@ -419,67 +419,38 @@ static ssize_t dp_phy_settings_read(struct file *f, char __user *buf,
 	return result;
 }
 
-static int dp_lttpr_status_show(struct seq_file *m, void *d)
+static int dp_lttpr_status_show(struct seq_file *m, void *unused)
 {
-	char *data;
-	struct amdgpu_dm_connector *connector = file_inode(m->file)->i_private;
-	struct dc_link *link = connector->dc_link;
-	uint32_t read_size = 1;
-	uint8_t repeater_count = 0;
+	struct drm_connector *connector = m->private;
+	struct amdgpu_dm_connector *aconnector =
+		to_amdgpu_dm_connector(connector);
+	struct dc_lttpr_caps caps = aconnector->dc_link->dpcd_caps.lttpr_caps;
 
-	data = kzalloc(read_size, GFP_KERNEL);
-	if (!data)
-		return 0;
+	if (connector->status != connector_status_connected)
+		return -ENODEV;
 
-	dm_helpers_dp_read_dpcd(link->ctx, link, 0xF0002, data, read_size);
+	seq_printf(m, "phy repeater count: %u (raw: 0x%x)\n",
+		   dp_parse_lttpr_repeater_count(caps.phy_repeater_cnt),
+		   caps.phy_repeater_cnt);
 
-	switch ((uint8_t)*data) {
-	case 0x80:
-		repeater_count = 1;
+	seq_puts(m, "phy repeater mode: ");
+
+	switch (caps.mode) {
+	case DP_PHY_REPEATER_MODE_TRANSPARENT:
+		seq_puts(m, "transparent");
 		break;
-	case 0x40:
-		repeater_count = 2;
+	case DP_PHY_REPEATER_MODE_NON_TRANSPARENT:
+		seq_puts(m, "non-transparent");
 		break;
-	case 0x20:
-		repeater_count = 3;
-		break;
-	case 0x10:
-		repeater_count = 4;
-		break;
-	case 0x8:
-		repeater_count = 5;
-		break;
-	case 0x4:
-		repeater_count = 6;
-		break;
-	case 0x2:
-		repeater_count = 7;
-		break;
-	case 0x1:
-		repeater_count = 8;
-		break;
-	case 0x0:
-		repeater_count = 0;
+	case 0x00:
+		seq_puts(m, "non lttpr");
 		break;
 	default:
-		repeater_count = (uint8_t)*data;
+		seq_printf(m, "read error (raw: 0x%x)", caps.mode);
 		break;
 	}
 
-	seq_printf(m, "phy repeater count: %d\n", repeater_count);
-
-	dm_helpers_dp_read_dpcd(link->ctx, link, 0xF0003, data, read_size);
-
-	if ((uint8_t)*data == 0x55)
-		seq_printf(m, "phy repeater mode: transparent\n");
-	else if ((uint8_t)*data == 0xAA)
-		seq_printf(m, "phy repeater mode: non-transparent\n");
-	else if ((uint8_t)*data == 0x00)
-		seq_printf(m, "phy repeater mode: non lttpr\n");
-	else
-		seq_printf(m, "phy repeater mode: read error\n");
-
-	kfree(data);
+	seq_puts(m, "\n");
 	return 0;
 }
 
@@ -1192,7 +1163,7 @@ static int dp_dsc_fec_support_show(struct seq_file *m, void *data)
 			break;
 		}
 		dpcd_caps = aconnector->dc_link->dpcd_caps;
-		if (aconnector->port) {
+		if (aconnector->mst_output_port) {
 			/* aconnector sets dsc_aux during get_modes call
 			 * if MST connector has it means it can either
 			 * enable DSC on the sink device or on MST branch
@@ -1279,7 +1250,7 @@ static ssize_t trigger_hotplug(struct file *f, const char __user *buf,
 	mutex_lock(&aconnector->hpd_lock);
 
 	/* Don't support for mst end device*/
-	if (aconnector->mst_port) {
+	if (aconnector->mst_root) {
 		mutex_unlock(&aconnector->hpd_lock);
 		return -EINVAL;
 	}
@@ -2538,13 +2509,13 @@ static int dp_is_mst_connector_show(struct seq_file *m, void *unused)
 
 	if (aconnector->mst_mgr.mst_state) {
 		role = "root";
-	} else if (aconnector->mst_port &&
-		aconnector->mst_port->mst_mgr.mst_state) {
+	} else if (aconnector->mst_root &&
+		aconnector->mst_root->mst_mgr.mst_state) {
 
 		role = "end";
 
-		mgr = &aconnector->mst_port->mst_mgr;
-		port = aconnector->port;
+		mgr = &aconnector->mst_root->mst_mgr;
+		port = aconnector->mst_output_port;
 
 		drm_modeset_lock(&mgr->base.lock, NULL);
 		if (port->pdt == DP_PEER_DEVICE_MST_BRANCHING &&
@@ -3391,12 +3362,12 @@ static int trigger_hpd_mst_set(void *data, u64 val)
 			if (!aconnector->dc_link)
 				continue;
 
-			if (!aconnector->mst_port)
+			if (!aconnector->mst_root)
 				continue;
 
 			link = aconnector->dc_link;
-			dp_receiver_power_ctrl(link, false);
-			drm_dp_mst_topology_mgr_set_mst(&aconnector->mst_port->mst_mgr, false);
+			dc_link_dp_receiver_power_ctrl(link, false);
+			drm_dp_mst_topology_mgr_set_mst(&aconnector->mst_root->mst_mgr, false);
 			link->mst_stream_alloc_table.stream_count = 0;
 			memset(link->mst_stream_alloc_table.stream_allocations, 0,
 					sizeof(link->mst_stream_alloc_table.stream_allocations));

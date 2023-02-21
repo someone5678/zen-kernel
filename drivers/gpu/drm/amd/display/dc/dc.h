@@ -47,7 +47,7 @@ struct aux_payload;
 struct set_config_cmd_payload;
 struct dmub_notification;
 
-#define DC_VER "3.2.217"
+#define DC_VER "3.2.221"
 
 #define MAX_SURFACES 3
 #define MAX_PLANES 6
@@ -873,6 +873,7 @@ struct dc_debug_options {
 	unsigned int dsc_delay_factor_wa_x1000;
 	unsigned int min_prefetch_in_strobe_ns;
 	bool disable_unbounded_requesting;
+	bool dig_fifo_off_in_blank;
 };
 
 struct gpu_info_soc_bounding_box_v1_0;
@@ -1413,6 +1414,7 @@ struct dpcd_caps {
 	union dpcd_fec_capability fec_cap;
 	struct dpcd_dsc_capabilities dsc_caps;
 	struct dc_lttpr_caps lttpr_caps;
+	struct adaptive_sync_caps adaptive_sync_caps;
 	struct dpcd_usb4_dp_tunneling_info usb4_dp_tun_info;
 
 	union dp_128b_132b_supported_link_rates dp_128b_132b_supported_link_rates;
@@ -1503,6 +1505,11 @@ struct dc_sink_fec_caps {
 	bool is_topology_fec_supported;
 };
 
+struct scdc_caps {
+	union hdmi_scdc_manufacturer_OUI_data manufacturer_OUI;
+	union hdmi_scdc_device_id_data device_id;
+};
+
 /*
  * The sink structure contains EDID and other display device properties
  */
@@ -1516,6 +1523,7 @@ struct dc_sink {
 	struct stereo_3d_features features_3d[TIMING_3D_FORMAT_MAX];
 	bool converter_disable_audio;
 
+	struct scdc_caps scdc_caps;
 	struct dc_sink_dsc_caps dsc_caps;
 	struct dc_sink_fec_caps fec_caps;
 
