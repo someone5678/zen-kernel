@@ -31,6 +31,10 @@ static const struct config_entry config_table[] = {
 					DMI_MATCH(DMI_SYS_VENDOR, "AMD"),
 					DMI_MATCH(DMI_PRODUCT_NAME, "Majolica-CZN"),
 				},
+				.matches = {
+					DMI_MATCH(DMI_SYS_VENDOR, "Valve"),
+					DMI_MATCH(DMI_PRODUCT_NAME, "Jupiter"),
+				},
 			},
 			{}
 		},
@@ -82,6 +86,11 @@ static struct snd_soc_acpi_codecs amp_max = {
 	.codecs = {"MX98360A"}
 };
 
+static struct snd_soc_acpi_codecs amp_cs35l41 = {
+	.num_codecs = 1,
+	.codecs = {"CLSA3541"}
+};
+
 struct snd_soc_acpi_mach snd_soc_acpi_amd_sof_machines[] = {
 	{
 		.id = "10EC5682",
@@ -129,6 +138,27 @@ struct snd_soc_acpi_mach snd_soc_acpi_amd_sof_machines[] = {
 	{},
 };
 EXPORT_SYMBOL(snd_soc_acpi_amd_sof_machines);
+
+struct snd_soc_acpi_mach snd_soc_acpi_amd_vgh_sof_machines[] = {
+	{
+		.id = "NVTN2020",
+		.drv_name = "nau8821-cs3",
+		.pdata = &acp_quirk_data,
+		.machine_quirk = snd_soc_acpi_codec_list,
+		.quirk_data = &amp_cs35l41,
+		.fw_filename = "sof-vangogh.ri",
+		.sof_tplg_filename = "sof-vgh-nau8821-cs35l41.tplg",
+	},
+	{
+		.id = "AMDI1019",
+		.drv_name = "vgh-dsp",
+		.pdata = &acp_quirk_data,
+		.fw_filename = "sof-vgh.ri",
+		.sof_tplg_filename = "sof-acp-vgh.tplg",
+	},
+	{},
+};
+EXPORT_SYMBOL(snd_soc_acpi_amd_vgh_sof_machines);
 
 struct snd_soc_acpi_mach snd_soc_acpi_amd_rmb_sof_machines[] = {
 	{

@@ -47,6 +47,7 @@ enum codec_endpoints {
 
 enum platform_end_point {
 	RENOIR = 0,
+	VANGOGH,
 	REMBRANDT,
 };
 
