@@ -91,6 +91,11 @@ static struct snd_soc_acpi_codecs amp_cs35l41 = {
 	.codecs = {"CLSA3541"}
 };
 
+static struct snd_soc_acpi_codecs amp_max98388 = {
+	.num_codecs = 1,
+	.codecs = {"ADS8388"}
+};
+
 struct snd_soc_acpi_mach snd_soc_acpi_amd_sof_machines[] = {
 	{
 		.id = "10EC5682",
@@ -155,6 +160,15 @@ struct snd_soc_acpi_mach snd_soc_acpi_amd_vgh_sof_machines[] = {
 		.pdata = &acp_quirk_data,
 		.fw_filename = "sof-vgh.ri",
 		.sof_tplg_filename = "sof-acp-vgh.tplg",
+	},
+	{
+		.id = "AMDI0010",
+		.drv_name = "nau8821-max",
+		.pdata = &acp_quirk_data,
+		.machine_quirk = snd_soc_acpi_codec_list,
+		.quirk_data = &amp_max98388,
+		.fw_filename = "sof-vangogh.ri",
+		.sof_tplg_filename = "sof-vgh-nau8821-cs35l41.tplg",
 	},
 	{},
 };
