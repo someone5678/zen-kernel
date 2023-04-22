@@ -86,21 +86,10 @@ static struct acp_card_drvdata sof_rt5682s_hs_rt1019_data = {
 static struct acp_card_drvdata sof_nau8821_hs_cs35l41_data = {
 	.hs_cpu_id = I2S_SP,
 	.amp_cpu_id = I2S_HS,
-	.dmic_cpu_id = NONE,
+	.dmic_cpu_id = DMIC,
 	.hs_codec_id = NAU8821,
 	.amp_codec_id = CS35L41,
-	.dmic_codec_id = NONE,
-	.soc_mclk = true,
-	.tdm_mode = false,
-};
-
-static struct acp_card_drvdata sof_nau8821_max_data = {
-	.hs_cpu_id = I2S_SP,
-	.amp_cpu_id = I2S_HS,
-	.dmic_cpu_id = NONE,
-	.hs_codec_id = NAU8821,
-	.amp_codec_id = MAX98388,
-	.dmic_codec_id = NONE,
+	.dmic_codec_id = DMIC,
 	.soc_mclk = true,
 	.tdm_mode = false,
 };
@@ -191,10 +180,6 @@ static const struct platform_device_id board_ids[] = {
 	{
 		.name = "nau8821-cs3",
 		.driver_data = (kernel_ulong_t)&sof_nau8821_hs_cs35l41_data
-	},
-	{
-		.name = "nau8821-max",
-		.driver_data = (kernel_ulong_t)&sof_nau8821_max_data
 	},
 	{ }
 };
