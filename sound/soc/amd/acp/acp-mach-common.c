@@ -25,12 +25,8 @@
 #include "../../codecs/rt1019.h"
 #include "../../codecs/rt5682s.h"
 #include "../../codecs/nau8825.h"
-#include "../../codecs/nau8821.h"
-#include "../../codecs/cs35l41.h"
-
 #include "acp-mach.h"
 
-static struct snd_soc_jack vg_headset;
 #define PCO_PLAT_CLK 48000000
 #define RT5682_PLL_FREQ (48000 * 512)
 #define DUAL_CHANNEL	2
@@ -794,185 +790,6 @@ static const struct snd_soc_ops acp_card_nau8825_ops = {
 	.hw_params = acp_nau8825_hw_params,
 };
 
-static const unsigned int acp_nau8821_format[] = {16};
-
-static struct snd_pcm_hw_constraint_list constraints_sample_bits = {
-	.list = acp_nau8821_format,
-	.count = ARRAY_SIZE(acp_nau8821_format),
-};
-
-static struct snd_soc_jack_pin acp_nau8821_jack_pins[] = {
-	{
-		.pin	= "Headphone Jack",
-		.mask	= SND_JACK_HEADPHONE,
-	},
-	{
-		.pin	= "Headset Mic",
-		.mask	= SND_JACK_MICROPHONE,
-	},
-};
-
-static int acp_8821_init(struct snd_soc_pcm_runtime *rtd)
-{
-	struct snd_soc_card *card = rtd->card;
-	struct acp_card_drvdata *drvdata = card->drvdata;
-	struct snd_soc_dai *codec_dai = asoc_rtd_to_codec(rtd, 0);
-	struct snd_soc_component *component = codec_dai->component;
-	unsigned int fmt;
-	int ret;
-
-	dev_info(rtd->dev, "codec dai name = %s\n", codec_dai->name);
-
-	if (drvdata->soc_mclk)
-		fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_CBC_CFC;
-	else
-		fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_CBP_CFP;
-
-	ret =  snd_soc_dai_set_fmt(codec_dai, fmt);
-	if (ret < 0) {
-		dev_err(rtd->card->dev, "Failed to set dai fmt: %d\n", ret);
-		return ret;
-	}
-
-	/*
-	 * Headset buttons map to the google Reference headset.
-	 * These can be configured by userspace.
-	 */
-	ret = snd_soc_card_jack_new_pins(card, "Headset Jack",
-					 SND_JACK_HEADSET | SND_JACK_BTN_0,
-					 &vg_headset, acp_nau8821_jack_pins,
-					 ARRAY_SIZE(acp_nau8821_jack_pins));
-	if (ret) {
-		dev_err(rtd->dev, "Headset Jack creation failed %d\n", ret);
-		return ret;
-	}
-
-	snd_jack_set_key(vg_headset.jack, SND_JACK_BTN_0, KEY_PLAYPAUSE);
-	snd_jack_set_key(vg_headset.jack, SND_JACK_BTN_1, KEY_VOICECOMMAND);
-	snd_jack_set_key(vg_headset.jack, SND_JACK_BTN_2, KEY_VOLUMEUP);
-	snd_jack_set_key(vg_headset.jack, SND_JACK_BTN_3, KEY_VOLUMEDOWN);
-
-	nau8821_enable_jack_detect(component, &vg_headset);
-
-	return snd_soc_dapm_add_routes(&rtd->card->dapm, nau8825_map, ARRAY_SIZE(nau8825_map));
-}
-
-static int acp_8821_startup(struct snd_pcm_substream *substream)
-{
-	struct snd_pcm_runtime *runtime = substream->runtime;
-
-	runtime->hw.channels_max = DUAL_CHANNEL;
-	snd_pcm_hw_constraint_list(runtime, 0, SNDRV_PCM_HW_PARAM_CHANNELS,
-				   &constraints_channels);
-	snd_pcm_hw_constraint_list(runtime, 0, SNDRV_PCM_HW_PARAM_RATE,
-				   &constraints_rates);
-	snd_pcm_hw_constraint_list(substream->runtime, 0,
-				   SNDRV_PCM_HW_PARAM_SAMPLE_BITS,
-				   &constraints_sample_bits);
-	return 0;
-}
-
-static int acp_nau8821_hw_params(struct snd_pcm_substream *substream,
-				   struct snd_pcm_hw_params *params)
-{
-	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
-	struct snd_soc_card *card = rtd->card;
-	struct snd_soc_dai *codec_dai = asoc_rtd_to_codec(rtd, 0);
-	int ret;
-
-	ret = snd_soc_dai_set_sysclk(codec_dai, NAU8821_CLK_FLL_BLK, 0,
-				     SND_SOC_CLOCK_IN);
-	if (ret < 0)
-		dev_err(card->dev, "can't set FS clock %d\n", ret);
-	ret = snd_soc_dai_set_pll(codec_dai, 0, 0, snd_soc_params_to_bclk(params),
-				  params_rate(params) * 256);
-	if (ret < 0)
-		dev_err(card->dev, "can't set FLL: %d\n", ret);
-
-	return ret;
-}
-
-static const struct snd_soc_ops acp_8821_ops = {
-	.startup = acp_8821_startup,
-	.hw_params = acp_nau8821_hw_params,
-};
-
-SND_SOC_DAILINK_DEF(nau8821,
-		    DAILINK_COMP_ARRAY(COMP_CODEC("i2c-NVTN2020:00",
-						  "nau8821-hifi")));
-
-static int acp_cs35l41_init(struct snd_soc_pcm_runtime *rtd)
-{
-	return 0;
-}
-
-static int acp_cs35l41_startup(struct snd_pcm_substream *substream)
-{
-	struct snd_pcm_runtime *runtime = substream->runtime;
-
-	runtime->hw.channels_max = DUAL_CHANNEL;
-	snd_pcm_hw_constraint_list(runtime, 0, SNDRV_PCM_HW_PARAM_CHANNELS,
-				   &constraints_channels);
-	snd_pcm_hw_constraint_list(runtime, 0, SNDRV_PCM_HW_PARAM_RATE,
-				   &constraints_rates);
-	return 0;
-}
-
-static int acp_cs35l41_hw_params(struct snd_pcm_substream *substream,
-				   struct snd_pcm_hw_params *params)
-{
-	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
-	struct snd_soc_card *card = rtd->card;
-	struct snd_soc_dai *codec_dai;
-	int ret, i;
-	unsigned int num_codecs = rtd->dai_link->num_codecs;
-	unsigned int bclk_val;
-
-	ret = 0;
-	for (i = 0; i < num_codecs; i++) {
-		codec_dai = asoc_rtd_to_codec(rtd, i);
-		if (strcmp(codec_dai->name, "cs35l41-pcm") == 0) {
-			switch (params_rate(params)) {
-			case 48000:
-				bclk_val = 1536000;
-				break;
-			default:
-				dev_err(card->dev, "Invalid Samplerate:0x%x\n",
-					params_rate(params));
-				return -EINVAL;
-			}
-			ret = snd_soc_component_set_sysclk(codec_dai->component,
-							   0, 0, bclk_val, SND_SOC_CLOCK_IN);
-			if (ret < 0) {
-				dev_err(card->dev, "failed to set sysclk for CS35l41 dai\n");
-				return ret;
-			}
-		}
-	}
-
-	return ret;
-}
-
-static struct snd_soc_codec_conf cs35l41_conf[] = {
-	{
-		.dlc = COMP_CODEC_CONF("spi-VLV1776:00"),
-		.name_prefix = "Left",
-	},
-	{
-		.dlc = COMP_CODEC_CONF("spi-VLV1776:01"),
-		.name_prefix = "Right",
-	},
-};
-
-static const struct snd_soc_ops acp_cs35l41_ops = {
-	.startup = acp_cs35l41_startup,
-	.hw_params = acp_cs35l41_hw_params,
-};
-
-SND_SOC_DAILINK_DEF(cs35l41,
-		    DAILINK_COMP_ARRAY(COMP_CODEC("spi-VLV1776:00", "cs35l41-pcm"),
-				       COMP_CODEC("spi-VLV1776:01", "cs35l41-pcm")));
-
 /* Declare DMIC codec components */
 SND_SOC_DAILINK_DEF(dmic_codec,
 		DAILINK_COMP_ARRAY(COMP_CODEC("dmic-codec", "dmic-hifi")));
@@ -1110,12 +927,6 @@ int acp_sofdsp_dai_links_create(struct snd_soc_card *card)
 			links[i].init = acp_card_rt5682s_init;
 			links[i].ops = &acp_card_rt5682s_ops;
 		}
-		if (drv_data->hs_codec_id == NAU8821) {
-			links[i].codecs = nau8821;
-			links[i].num_codecs = ARRAY_SIZE(nau8821);
-			links[i].init = acp_8821_init;
-			links[i].ops = &acp_8821_ops;
-		}
 		i++;
 	}
 
@@ -1210,14 +1021,6 @@ int acp_sofdsp_dai_links_create(struct snd_soc_card *card)
 			links[i].init = acp_card_rt1019_init;
 			card->codec_conf = rt1019_conf;
 			card->num_configs = ARRAY_SIZE(rt1019_conf);
-		}
-		if (drv_data->amp_codec_id == CS35L41) {
-			links[i].codecs = cs35l41;
-			links[i].num_codecs = ARRAY_SIZE(cs35l41);
-			links[i].init = acp_cs35l41_init;
-			card->codec_conf = cs35l41_conf;
-			card->num_configs = ARRAY_SIZE(cs35l41_conf);
-			links[i].ops = &acp_cs35l41_ops;
 		}
 		i++;
 	}

@@ -83,17 +83,6 @@ static struct acp_card_drvdata sof_rt5682s_hs_rt1019_data = {
 	.tdm_mode = false,
 };
 
-static struct acp_card_drvdata sof_nau8821_hs_cs35l41_data = {
-	.hs_cpu_id = I2S_SP,
-	.amp_cpu_id = I2S_HS,
-	.dmic_cpu_id = DMIC,
-	.hs_codec_id = NAU8821,
-	.amp_codec_id = CS35L41,
-	.dmic_codec_id = DMIC,
-	.soc_mclk = true,
-	.tdm_mode = false,
-};
-
 static const struct snd_kcontrol_new acp_controls[] = {
 	SOC_DAPM_PIN_SWITCH("Headphone Jack"),
 	SOC_DAPM_PIN_SWITCH("Headset Mic"),
@@ -177,10 +166,6 @@ static const struct platform_device_id board_ids[] = {
 		.name = "rt5682s-hs-rt1019",
 		.driver_data = (kernel_ulong_t)&sof_rt5682s_hs_rt1019_data
 	},
-	{
-		.name = "nau8821-cs3",
-		.driver_data = (kernel_ulong_t)&sof_nau8821_hs_cs35l41_data
-	},
 	{ }
 };
 static struct platform_driver acp_asoc_audio = {
@@ -202,5 +187,4 @@ MODULE_ALIAS("platform:rt5682s-max");
 MODULE_ALIAS("platform:rt5682s-rt1019");
 MODULE_ALIAS("platform:nau8825-max");
 MODULE_ALIAS("platform:rt5682s-hs-rt1019");
-MODULE_ALIAS("platform:nau8821-cs3");
 MODULE_LICENSE("GPL v2");
