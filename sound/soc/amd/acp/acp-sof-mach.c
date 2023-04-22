@@ -218,5 +218,4 @@ MODULE_ALIAS("platform:rt5682s-rt1019");
 MODULE_ALIAS("platform:nau8825-max");
 MODULE_ALIAS("platform:rt5682s-hs-rt1019");
 MODULE_ALIAS("platform:nau8821-cs3");
-MODULE_ALIAS("platform:nau8821-max");
 MODULE_LICENSE("GPL v2");
