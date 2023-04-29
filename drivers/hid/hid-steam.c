@@ -88,9 +88,10 @@ static LIST_HEAD(steam_devices);
 #define STEAM_CMD_GET_REGISTER_DEFAULT	0x8c
 #define STEAM_CMD_SET_MODE		0x8d
 #define STEAM_CMD_DEFAULT_MOUSE		0x8e
-#define STEAM_CMD_FORCEFEEDBAK		0x8f
+#define STEAM_CMD_HAPTIC_PULSE		0x8f
 #define STEAM_CMD_REQUEST_COMM_STATUS	0xb4
 #define STEAM_CMD_GET_SERIAL		0xae
+#define STEAM_CMD_HAPTIC_CMD		0xea
 #define STEAM_CMD_HAPTIC_RUMBLE		0xeb
 
 /* Some useful register ids */
@@ -116,6 +117,11 @@ static LIST_HEAD(steam_devices);
 #define STEAM_GYRO_MODE_SEND_RAW_ACCEL		0x0008
 #define STEAM_GYRO_MODE_SEND_RAW_GYRO		0x0010
 
+/* Pad identifiers for the deck */
+#define STEAM_PAD_LEFT 0
+#define STEAM_PAD_RIGHT 1
+#define STEAM_PAD_BOTH 2
+
 /* Other random constants */
 #define STEAM_SERIAL_LEN 10
 
@@ -135,6 +141,9 @@ struct steam_device {
 	u8 battery_charge;
 	u16 voltage;
 	struct delayed_work heartbeat;
+	struct delayed_work mode_switch;
+	bool did_mode_switch;
+	bool gamepad_mode;
 	struct work_struct rumble_work;
 	u16 rumble_left;
 	u16 rumble_right;
@@ -294,6 +303,33 @@ static inline int steam_request_conn_status(struct steam_device *steam)
 	return steam_send_report_byte(steam, STEAM_CMD_REQUEST_COMM_STATUS);
 }
 
+/*
+ * Send a haptic pulse to the trackpads
+ * Duration and interval are measured in microseconds, count is the number
+ * of pulses to send for duration time with interval microseconds between them
+ * and gain is measured in decibels, ranging from -24 to +6
+ */
+static inline int steam_haptic_pulse(struct steam_device *steam, u8 pad,
+				u16 duration, u16 interval, u16 count, u8 gain)
+{
+	u8 report[10] = {STEAM_CMD_HAPTIC_PULSE, 8};
+
+	/* Left and right are swapped on this report for legacy reasons */
+	if (pad < STEAM_PAD_BOTH)
+		pad ^= 1;
+
+	report[2] = pad;
+	report[3] = duration & 0xFF;
+	report[4] = duration >> 8;
+	report[5] = interval & 0xFF;
+	report[6] = interval >> 8;
+	report[7] = count & 0xFF;
+	report[8] = count >> 8;
+	report[9] = gain;
+
+	return steam_send_report(steam, report, sizeof(report));
+}
+
 static inline int steam_haptic_rumble(struct steam_device *steam,
 				u16 intensity, u16 left_speed, u16 right_speed,
 				u8 left_gain, u8 right_gain)
@@ -335,6 +371,9 @@ static int steam_play_effect(struct input_dev *dev, void *data,
 
 static void steam_set_lizard_mode(struct steam_device *steam, bool enable)
 {
+	if (steam->gamepad_mode)
+		enable = false;
+
 	if (enable) {
 		/* enable esc, enter, cursors */
 		steam_send_report_byte(steam, STEAM_CMD_DEFAULT_MAPPINGS);
@@ -538,12 +577,6 @@ static int steam_input_register(struct steam_device *steam)
 
 	input_set_abs_params(input, ABS_X, -32767, 32767, 0, 0);
 	input_set_abs_params(input, ABS_Y, -32767, 32767, 0, 0);
-
-	input_set_abs_params(input, ABS_HAT0X, -32767, 32767,
-			STEAM_PAD_FUZZ, 0);
-	input_set_abs_params(input, ABS_HAT0Y, -32767, 32767,
-			STEAM_PAD_FUZZ, 0);
-
 	if (steam->quirks & STEAM_QUIRK_DECK) {
 		input_set_abs_params(input, ABS_HAT2Y, 0, 32767, 0, 0);
 		input_set_abs_params(input, ABS_HAT2X, 0, 32767, 0, 0);
@@ -551,6 +584,10 @@ static int steam_input_register(struct steam_device *steam)
 		input_set_abs_params(input, ABS_RX, -32767, 32767, 0, 0);
 		input_set_abs_params(input, ABS_RY, -32767, 32767, 0, 0);
 
+		input_set_abs_params(input, ABS_HAT0X, -32767, 32767,
+				STEAM_PAD_FUZZ, 0);
+		input_set_abs_params(input, ABS_HAT0Y, -32767, 32767,
+				STEAM_PAD_FUZZ, 0);
 		input_set_abs_params(input, ABS_HAT1X, -32767, 32767,
 				STEAM_PAD_FUZZ, 0);
 		input_set_abs_params(input, ABS_HAT1Y, -32767, 32767,
@@ -571,6 +608,10 @@ static int steam_input_register(struct steam_device *steam)
 		input_set_abs_params(input, ABS_RX, -32767, 32767,
 				STEAM_PAD_FUZZ, 0);
 		input_set_abs_params(input, ABS_RY, -32767, 32767,
+				STEAM_PAD_FUZZ, 0);
+		input_set_abs_params(input, ABS_HAT0X, -32767, 32767,
+				STEAM_PAD_FUZZ, 0);
+		input_set_abs_params(input, ABS_HAT0Y, -32767, 32767,
 				STEAM_PAD_FUZZ, 0);
 
 		input_abs_set_res(input, ABS_X, STEAM_JOYSTICK_RESOLUTION);
@@ -716,6 +757,29 @@ static void steam_work_connect_cb(struct work_struct *work)
 		}
 	} else {
 		steam_unregister(steam);
+	}
+}
+
+static void steam_mode_switch_cb(struct work_struct *work)
+{
+	struct steam_device *steam = container_of(to_delayed_work(work),
+							struct steam_device, mode_switch);
+	steam->gamepad_mode = !steam->gamepad_mode;
+	if (!lizard_mode)
+		return;
+
+	mutex_lock(&steam->mutex);
+	if (steam->gamepad_mode)
+		steam_set_lizard_mode(steam, false);
+	else if (!steam->client_opened)
+		steam_set_lizard_mode(steam, lizard_mode);
+	mutex_unlock(&steam->mutex);
+
+	steam_haptic_pulse(steam, STEAM_PAD_RIGHT, 0x190, 0, 1, 0);
+	if (steam->gamepad_mode) {
+		steam_haptic_pulse(steam, STEAM_PAD_LEFT, 0x14D, 0x14D, 0x2D, 0);
+	} else {
+		steam_haptic_pulse(steam, STEAM_PAD_LEFT, 0x1F4, 0x1F4, 0x1E, 0);
 	}
 }
 
@@ -891,6 +955,7 @@ static int steam_probe(struct hid_device *hdev,
 	mutex_init(&steam->mutex);
 	steam->quirks = id->driver_data;
 	INIT_WORK(&steam->work_connect, steam_work_connect_cb);
+	INIT_DELAYED_WORK(&steam->mode_switch, steam_mode_switch_cb);
 	INIT_LIST_HEAD(&steam->list);
 	INIT_DEFERRABLE_WORK(&steam->heartbeat, steam_lizard_mode_heartbeat);
 	INIT_WORK(&steam->rumble_work, steam_haptic_rumble_cb);
@@ -950,6 +1015,7 @@ hid_hw_start_fail:
 client_hdev_fail:
 	cancel_work_sync(&steam->work_connect);
 	cancel_delayed_work_sync(&steam->heartbeat);
+	cancel_delayed_work_sync(&steam->mode_switch);
 	cancel_work_sync(&steam->rumble_work);
 steam_alloc_fail:
 	hid_err(hdev, "%s: failed with error %d\n",
@@ -973,6 +1039,8 @@ static void steam_remove(struct hid_device *hdev)
 	cancel_delayed_work_sync(&steam->heartbeat);
 	mutex_unlock(&steam->mutex);
 	cancel_work_sync(&steam->work_connect);
+	cancel_delayed_work_sync(&steam->heartbeat);
+	cancel_delayed_work_sync(&steam->mode_switch);
 	if (steam->quirks & STEAM_QUIRK_WIRELESS) {
 		hid_info(hdev, "Steam wireless receiver disconnected");
 	}
@@ -1307,6 +1375,14 @@ static void steam_do_deck_input_event(struct steam_device *steam,
 	input_event(input, EV_KEY, BTN_BASE, !!(b14 & BIT(2)));
 
 	input_sync(input);
+
+	if (!(b9 & BIT(6)) && steam->did_mode_switch) {
+		steam->did_mode_switch = false;
+		cancel_delayed_work_sync(&steam->mode_switch);
+	} else if (!steam->client_opened && (b9 & BIT(6)) && !steam->did_mode_switch) {
+		steam->did_mode_switch = true;
+		schedule_delayed_work(&steam->mode_switch, 45 * HZ / 100);
+	}
 }
 
 /*
