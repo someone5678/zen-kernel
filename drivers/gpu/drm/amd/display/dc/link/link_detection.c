@@ -617,15 +617,15 @@ static bool is_same_edid(struct dc_edid *old_edid, struct dc_edid *new_edid)
 		       new_edid->raw_edid, new_edid->length) == 0);
 }
 
-static bool wait_for_entering_dp_alt_mode(struct dc_link *link)
+bool wait_for_entering_dp_alt_mode(struct dc_link *link)
 {
 
 	/**
 	 * something is terribly wrong if time out is > 200ms. (5Hz)
-	 * 500 microseconds * 400 tries us 200 ms
+	 * 500 microseconds * 1000 tries us 200 ms
 	 **/
 	unsigned int sleep_time_in_microseconds = 500;
-	unsigned int tries_allowed = 400;
+	unsigned int tries_allowed = 1000;
 	bool is_in_alt_mode;
 	unsigned long long enter_timestamp;
 	unsigned long long finish_timestamp;
@@ -641,6 +641,11 @@ static bool wait_for_entering_dp_alt_mode(struct dc_link *link)
 	 **/
 	if (!link->link_enc->funcs->is_in_alt_mode)
 		return true;
+	
+	if (link->mst_dpcd_fail_on_resume) {
+		tries_allowed = 3000;
+		link->mst_dpcd_fail_on_resume = false;
+	}
 
 	is_in_alt_mode = link->link_enc->funcs->is_in_alt_mode(link->link_enc);
 	DC_LOG_DC("DP Alt mode state on HPD: %d\n", is_in_alt_mode);

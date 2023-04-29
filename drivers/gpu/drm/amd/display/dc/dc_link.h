@@ -187,6 +187,7 @@ struct dc_link {
 	bool aux_access_disabled;
 	bool sync_lt_in_progress;
 	bool is_internal_display;
+	bool mst_dpcd_fail_on_resume;
 
 	/* TODO: Rename. Flag an endpoint as having a programmable mapping to a
 	 * DIG encoder. */
@@ -450,6 +451,7 @@ bool dc_link_is_dp_sink_present(struct dc_link *link);
  * DPCD access interfaces
  */
 
+bool wait_for_entering_dp_alt_mode(struct dc_link *link);
 void dc_link_set_drive_settings(struct dc *dc,
 				struct link_training_settings *lt_settings,
 				const struct dc_link *link);
