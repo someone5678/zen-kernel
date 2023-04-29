@@ -1367,7 +1367,7 @@ static ssize_t clear_refs_write(struct file *file, const char __user *buf,
 				goto out_mm;
 			}
 			if (!clear_range) {
-				mas_for_each(&mas, vma, ULONG_MAX) {
+				for_each_vma(vmi, vma) {
 					if (!(vma->vm_flags & VM_SOFTDIRTY))
 						continue;
 					mmap_read_unlock(mm);
@@ -1375,8 +1375,8 @@ static ssize_t clear_refs_write(struct file *file, const char __user *buf,
 						count = -EINTR;
 						goto out_mm;
 					}
-					mas_for_each(&mas, vma, ULONG_MAX) {
-						vma->vm_flags &= ~VM_SOFTDIRTY;
+					for_each_vma(vmi, vma) {
+						vm_flags_clear(vma, VM_SOFTDIRTY);
 						vma_set_page_prot(vma);
 					}
 					mmap_write_downgrade(mm);
@@ -1385,7 +1385,7 @@ static ssize_t clear_refs_write(struct file *file, const char __user *buf,
 			}
 			inc_tlb_flush_pending(mm);
 			mmu_notifier_range_init(&range, MMU_NOTIFY_SOFT_DIRTY,
-						0, NULL, mm, start, end);
+						0, mm, start, end);
 			mmu_notifier_invalidate_range_start(&range);
 		} else {
 			if (mmap_write_lock_killable(mm)) {
@@ -1857,7 +1857,7 @@ static ssize_t do_pagemap_read(struct file *file, char __user *buf,
 		{
 			inc_tlb_flush_pending(mm);
 			mmu_notifier_range_init(&range, MMU_NOTIFY_SOFT_DIRTY,
-						0, NULL, mm, start_vaddr, end);
+						0, mm, start_vaddr, end);
 			mmu_notifier_invalidate_range_start(&range);
 		}
 		ret = walk_page_range(mm, start_vaddr, end, &pagemap_ops, &pm);
