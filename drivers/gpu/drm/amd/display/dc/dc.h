@@ -1417,6 +1417,7 @@ struct dc_link {
 	bool sync_lt_in_progress;
 	bool skip_stream_reenable;
 	bool is_internal_display;
+	bool mst_dpcd_fail_on_resume;
 	/** @todo Rename. Flag an endpoint as having a programmable mapping to a DIG encoder. */
 	bool is_dig_mapping_flexible;
 	bool hpd_status; /* HPD status of link without physical HPD pin. */
@@ -1836,6 +1837,8 @@ const struct dc_link_settings *dc_link_get_link_cap(const struct dc_link *link);
  * return - true if connected, false otherwise
  */
 bool dc_link_is_dp_sink_present(struct dc_link *link);
+
+bool wait_for_entering_dp_alt_mode(struct dc_link *link);
 
 /* Force DP lane settings update to main-link video signal and notify the change
  * to DP RX via DPCD. This is a debug interface used for video signal integrity
