@@ -938,8 +938,7 @@ void max98388_read_deveice_property(struct device *dev,
 	}
 }
 
-static int max98388_i2c_probe(struct i2c_client *i2c,
-			      const struct i2c_device_id *id)
+static int max98388_i2c_probe(struct i2c_client *i2c)
 {
 	int ret = 0;
 	int reg = 0;
