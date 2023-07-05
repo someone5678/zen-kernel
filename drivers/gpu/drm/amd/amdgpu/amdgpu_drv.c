@@ -195,6 +195,7 @@ int amdgpu_use_xgmi_p2p = 1;
 int amdgpu_vcnfw_log;
 int amdgpu_sg_display = -1; /* auto */
 int amdgpu_user_partt_mode = AMDGPU_AUTO_COMPUTE_PARTITION_MODE;
+int amdgpu_indirect_sram = -1;
 
 static void amdgpu_drv_delayed_reset_work_handler(struct work_struct *work);
 
@@ -972,6 +973,14 @@ MODULE_PARM_DESC(
 						3 = AMDGPU_QPX_PARTITION_MODE, \
 						4 = AMDGPU_CPX_PARTITION_MODE)");
 module_param_named(user_partt_mode, amdgpu_user_partt_mode, uint, 0444);
+
+/**
+ * DOC: indirect_sram (int)
+ * Allow users to force using (or not) the VCN indirect SRAM mode in the fw load
+ * code. Default is -1, meaning auto (aka, don't mess with driver's behavior).
+ */
+MODULE_PARM_DESC(indirect_sram, "Force VCN indirect SRAM (-1 = auto (default), 0 = disabled, 1 = enabled)");
+module_param_named(indirect_sram, amdgpu_indirect_sram, int, 0444);
 
 /* These devices are not supported by amdgpu.
  * They are supported by the mach64, r128, radeon drivers
