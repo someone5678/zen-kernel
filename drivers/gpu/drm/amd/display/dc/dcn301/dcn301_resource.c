@@ -702,23 +702,6 @@ static const struct dc_debug_options debug_defaults_drv = {
 	.exit_idle_opt_for_cursor_updates = true
 };
 
-static const struct dc_debug_options debug_defaults_diags = {
-	.disable_dmcu = true,
-	.force_abm_enable = false,
-	.timing_trace = true,
-	.clock_trace = true,
-	.disable_dpp_power_gate = false,
-	.disable_hubp_power_gate = false,
-	.disable_clock_gate = true,
-	.disable_pplib_clock_request = true,
-	.disable_pplib_wm_range = true,
-	.disable_stutter = true,
-	.scl_reset_length10 = true,
-	.dwb_fi_phase = -1, // -1 = disable
-	.dmub_command_table = true,
-	.use_max_lb = false,
-};
-
 static void dcn301_dpp_destroy(struct dpp **dpp)
 {
 	kfree(TO_DCN20_DPP(*dpp));
@@ -1047,13 +1030,6 @@ static const struct resource_create_funcs res_create_funcs = {
 	.create_hwseq = dcn301_hwseq_create,
 };
 
-static const struct resource_create_funcs res_create_maximus_funcs = {
-	.read_dce_straps = NULL,
-	.create_audio = NULL,
-	.create_stream_encoder = NULL,
-	.create_hwseq = dcn301_hwseq_create,
-};
-
 static void dcn301_destruct(struct dcn301_resource_pool *pool)
 {
 	unsigned int i;
@@ -1258,6 +1234,44 @@ static struct display_stream_compressor *dcn301_dsc_create(
 	return &dsc->base;
 }
 
+static enum dc_status
+dcn301_add_stream_to_ctx(struct dc *dc,
+			 struct dc_state *new_ctx,
+			 struct dc_stream_state *dc_stream)
+{
+	enum dc_status result = DC_ERROR_UNEXPECTED;
+
+	result = dcn20_add_stream_to_ctx(dc, new_ctx, dc_stream);
+	if (result != DC_OK)
+		return result;
+
+	return DC_OK;
+}
+
+static enum dc_status
+dcn301_remove_stream_from_ctx(struct dc *dc,
+			      struct dc_state *new_ctx,
+			      struct dc_stream_state *dc_stream)
+{
+	struct dc_3dlut *lut3d_func;
+	struct dc_transfer_func *func_shaper;
+
+	lut3d_func = (struct dc_3dlut *)dc_stream->lut3d_func;
+	func_shaper = (struct dc_transfer_func *)dc_stream->func_shaper;
+
+	ASSERT((lut3d_func && func_shaper) || (!lut3d_func && !func_shaper));
+	if (lut3d_func && func_shaper)
+	{
+		if (!dc_acquire_release_mpc_3dlut_for_ctx(dc, false, new_ctx, dc_stream,
+							&lut3d_func, &func_shaper))
+			return DC_ERROR_UNEXPECTED;
+	}
+
+	dc_stream->lut3d_func = lut3d_func;
+	dc_stream->func_shaper = func_shaper;
+
+	return dcn20_remove_stream_from_ctx(dc, new_ctx, dc_stream);
+}
 
 static void dcn301_destroy_resource_pool(struct resource_pool **pool)
 {
@@ -1404,9 +1418,9 @@ static struct resource_funcs dcn301_res_pool_funcs = {
 	.update_soc_for_wm_a = dcn30_update_soc_for_wm_a,
 	.populate_dml_pipes = dcn30_populate_dml_pipes_from_context,
 	.acquire_idle_pipe_for_layer = dcn20_acquire_idle_pipe_for_layer,
-	.add_stream_to_ctx = dcn30_add_stream_to_ctx,
+	.add_stream_to_ctx = dcn301_add_stream_to_ctx,
 	.add_dsc_to_stream_resource = dcn20_add_dsc_to_stream_resource,
-	.remove_stream_from_ctx = dcn20_remove_stream_from_ctx,
+	.remove_stream_from_ctx = dcn301_remove_stream_from_ctx,
 	.populate_dml_writeback_from_context = dcn30_populate_dml_writeback_from_context,
 	.set_mcif_arb_params = dcn30_set_mcif_arb_params,
 	.find_first_free_match_stream_enc_for_link = dcn10_find_first_free_match_stream_enc_for_link,
@@ -1513,10 +1527,7 @@ static bool dcn301_resource_construct(
 
 	if (dc->ctx->dce_environment == DCE_ENV_PRODUCTION_DRV)
 		dc->debug = debug_defaults_drv;
-	else if (dc->ctx->dce_environment == DCE_ENV_FPGA_MAXIMUS) {
-		dc->debug = debug_defaults_diags;
-	} else
-		dc->debug = debug_defaults_diags;
+
 	// Init the vm_helper
 	if (dc->vm_helper)
 		vm_helper_init(dc->vm_helper, 16);
@@ -1710,9 +1721,8 @@ static bool dcn301_resource_construct(
 
 	/* Audio, Stream Encoders including HPO and virtual, MPC 3D LUTs */
 	if (!resource_construct(num_virtual_links, dc, &pool->base,
-			(!IS_FPGA_MAXIMUS_DC(dc->ctx->dce_environment) ?
-			&res_create_funcs : &res_create_maximus_funcs)))
-			goto create_fail;
+			&res_create_funcs))
+		goto create_fail;
 
 	/* HW Sequencer and Plane caps */
 	dcn301_hw_sequencer_construct(dc);

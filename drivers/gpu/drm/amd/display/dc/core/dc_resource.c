@@ -69,6 +69,7 @@
 #include "../dcn32/dcn32_resource.h"
 #include "../dcn321/dcn321_resource.h"
 
+
 #define DC_LOGGER_INIT(logger)
 
 enum dce_version resource_parse_asic_id(struct hw_asic_id asic_id)
@@ -1878,7 +1879,7 @@ bool dc_add_all_planes_for_stream(
 	return add_all_planes_for_stream(dc, stream, &set, 1, context);
 }
 
-bool is_timing_changed(struct dc_stream_state *cur_stream,
+bool dc_is_timing_changed(struct dc_stream_state *cur_stream,
 		       struct dc_stream_state *new_stream)
 {
 	if (cur_stream == NULL)
@@ -1903,7 +1904,7 @@ static bool are_stream_backends_same(
 	if (stream_a == NULL || stream_b == NULL)
 		return false;
 
-	if (is_timing_changed(stream_a, stream_b))
+	if (dc_is_timing_changed(stream_a, stream_b))
 		return false;
 
 	if (stream_a->signal != stream_b->signal)
@@ -2967,14 +2968,9 @@ static void set_avi_info_frame(
 	uint32_t pixel_encoding = 0;
 	enum scanning_type scan_type = SCANNING_TYPE_NODATA;
 	enum dc_aspect_ratio aspect = ASPECT_RATIO_NO_DATA;
-	bool itc = false;
-	uint8_t itc_value = 0;
-	uint8_t cn0_cn1 = 0;
-	unsigned int cn0_cn1_value = 0;
 	uint8_t *check_sum = NULL;
 	uint8_t byte_index = 0;
 	union hdmi_info_packet hdmi_info;
-	union display_content_support support = {0};
 	unsigned int vic = pipe_ctx->stream->timing.vic;
 	unsigned int rid = pipe_ctx->stream->timing.rid;
 	unsigned int fr_ind = pipe_ctx->stream->timing.fr_index;
@@ -3034,23 +3030,32 @@ static void set_avi_info_frame(
 	hdmi_info.bits.S0_S1 = scan_type;
 
 	/* C0, C1 : Colorimetry */
-	if (color_space == COLOR_SPACE_YCBCR709 ||
-			color_space == COLOR_SPACE_YCBCR709_LIMITED)
+	switch (color_space) {
+	case COLOR_SPACE_YCBCR709:
+	case COLOR_SPACE_YCBCR709_LIMITED:
 		hdmi_info.bits.C0_C1 = COLORIMETRY_ITU709;
-	else if (color_space == COLOR_SPACE_YCBCR601 ||
-			color_space == COLOR_SPACE_YCBCR601_LIMITED)
+		break;
+	case COLOR_SPACE_YCBCR601:
+	case COLOR_SPACE_YCBCR601_LIMITED:
 		hdmi_info.bits.C0_C1 = COLORIMETRY_ITU601;
-	else {
-		hdmi_info.bits.C0_C1 = COLORIMETRY_NO_DATA;
-	}
-	if (color_space == COLOR_SPACE_2020_RGB_FULLRANGE ||
-			color_space == COLOR_SPACE_2020_RGB_LIMITEDRANGE ||
-			color_space == COLOR_SPACE_2020_YCBCR) {
+		break;
+	case COLOR_SPACE_2020_RGB_FULLRANGE:
+	case COLOR_SPACE_2020_RGB_LIMITEDRANGE:
 		hdmi_info.bits.EC0_EC2 = COLORIMETRYEX_BT2020RGBYCBCR;
 		hdmi_info.bits.C0_C1   = COLORIMETRY_EXTENDED;
-	} else if (color_space == COLOR_SPACE_ADOBERGB) {
+		break;
+	case COLOR_SPACE_2020_YCBCR:
+		hdmi_info.bits.EC0_EC2 = COLORIMETRYEX_BT2020YCC;
+		hdmi_info.bits.C0_C1   = COLORIMETRY_EXTENDED;
+		break;
+	case COLOR_SPACE_ADOBERGB:
 		hdmi_info.bits.EC0_EC2 = COLORIMETRYEX_ADOBERGB;
 		hdmi_info.bits.C0_C1   = COLORIMETRY_EXTENDED;
+		break;
+	case COLOR_SPACE_SRGB:
+	default:
+		hdmi_info.bits.C0_C1 = COLORIMETRY_NO_DATA;
+		break;
 	}
 
 	if (pixel_encoding && color_space == COLOR_SPACE_2020_YCBCR &&
@@ -3078,49 +3083,27 @@ static void set_avi_info_frame(
 	/* Active Format Aspect ratio - same as Picture Aspect Ratio. */
 	hdmi_info.bits.R0_R3 = ACTIVE_FORMAT_ASPECT_RATIO_SAME_AS_PICTURE;
 
-	/* TODO: un-hardcode cn0_cn1 and itc */
-
-	cn0_cn1 = 0;
-	cn0_cn1_value = 0;
-
-	itc = true;
-	itc_value = 1;
-
-	support = stream->content_support;
-
-	if (itc) {
-		if (!support.bits.valid_content_type) {
-			cn0_cn1_value = 0;
-		} else {
-			if (cn0_cn1 == DISPLAY_CONTENT_TYPE_GRAPHICS) {
-				if (support.bits.graphics_content == 1) {
-					cn0_cn1_value = 0;
-				}
-			} else if (cn0_cn1 == DISPLAY_CONTENT_TYPE_PHOTO) {
-				if (support.bits.photo_content == 1) {
-					cn0_cn1_value = 1;
-				} else {
-					cn0_cn1_value = 0;
-					itc_value = 0;
-				}
-			} else if (cn0_cn1 == DISPLAY_CONTENT_TYPE_CINEMA) {
-				if (support.bits.cinema_content == 1) {
-					cn0_cn1_value = 2;
-				} else {
-					cn0_cn1_value = 0;
-					itc_value = 0;
-				}
-			} else if (cn0_cn1 == DISPLAY_CONTENT_TYPE_GAME) {
-				if (support.bits.game_content == 1) {
-					cn0_cn1_value = 3;
-				} else {
-					cn0_cn1_value = 0;
-					itc_value = 0;
-				}
-			}
-		}
-		hdmi_info.bits.CN0_CN1 = cn0_cn1_value;
-		hdmi_info.bits.ITC = itc_value;
+	switch (stream->content_type) {
+	case DISPLAY_CONTENT_TYPE_NO_DATA:
+		hdmi_info.bits.CN0_CN1 = 0;
+		hdmi_info.bits.ITC = 0;
+		break;
+	case DISPLAY_CONTENT_TYPE_GRAPHICS:
+		hdmi_info.bits.CN0_CN1 = 0;
+		hdmi_info.bits.ITC = 1;
+		break;
+	case DISPLAY_CONTENT_TYPE_PHOTO:
+		hdmi_info.bits.CN0_CN1 = 1;
+		hdmi_info.bits.ITC = 1;
+		break;
+	case DISPLAY_CONTENT_TYPE_CINEMA:
+		hdmi_info.bits.CN0_CN1 = 2;
+		hdmi_info.bits.ITC = 1;
+		break;
+	case DISPLAY_CONTENT_TYPE_GAME:
+		hdmi_info.bits.CN0_CN1 = 3;
+		hdmi_info.bits.ITC = 1;
+		break;
 	}
 
 	if (stream->qs_bit == 1) {
@@ -3528,7 +3511,7 @@ bool pipe_need_reprogram(
 	if (pipe_ctx_old->stream_res.stream_enc != pipe_ctx->stream_res.stream_enc)
 		return true;
 
-	if (is_timing_changed(pipe_ctx_old->stream, pipe_ctx->stream))
+	if (dc_is_timing_changed(pipe_ctx_old->stream, pipe_ctx->stream))
 		return true;
 
 	if (pipe_ctx_old->stream->dpms_off != pipe_ctx->stream->dpms_off)

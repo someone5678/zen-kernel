@@ -238,6 +238,7 @@ int configure_and_run_sha_dma(struct acp_dev_data *adata, void *image_addr,
 		}
 	}
 
+	snd_sof_dsp_write(sdev, ACP_DSP_BAR, ACP_SHA_DMA_INCLUDE_HDR, ACP_SHA_HEADER);
 	snd_sof_dsp_write(sdev, ACP_DSP_BAR, ACP_SHA_DMA_STRT_ADDR, start_addr);
 	snd_sof_dsp_write(sdev, ACP_DSP_BAR, ACP_SHA_DMA_DESTINATION_ADDR, dest_addr);
 	snd_sof_dsp_write(sdev, ACP_DSP_BAR, ACP_SHA_MSG_LENGTH, image_length);
@@ -462,6 +463,38 @@ int amd_sof_acp_resume(struct snd_sof_dev *sdev)
 }
 EXPORT_SYMBOL_NS(amd_sof_acp_resume, SND_SOC_SOF_AMD_COMMON);
 
+static void acp_set_window_offset(struct snd_sof_dev *sdev,
+				  struct pci_dev *pci)
+{
+	switch (pci->revision) {
+	case 0x50:
+		sdev->dsp_box.offset = 0;
+		sdev->dsp_box.size = BOX_SIZE_1024;
+
+		sdev->host_box.offset = sdev->dsp_box.offset + sdev->dsp_box.size;
+		sdev->host_box.size = BOX_SIZE_1024;
+
+		sdev->debug_box.offset = sdev->host_box.offset + sdev->host_box.size;
+		sdev->debug_box.size = BOX_SIZE_1024;
+
+		sdev->dsp_oops_offset = sdev->debug_box.offset + sdev->debug_box.size;
+
+		sdev->stream_box.offset = sdev->dsp_oops_offset + BOX_SIZE_1024;
+		sdev->stream_box.size = BOX_SIZE_1024;
+		break;
+	default:
+		sdev->dsp_box.offset = 0;
+		sdev->dsp_box.size = BOX_SIZE_512;
+
+		sdev->host_box.offset = sdev->dsp_box.offset + sdev->dsp_box.size;
+		sdev->host_box.size = BOX_SIZE_512;
+
+		sdev->debug_box.offset = sdev->host_box.offset + sdev->host_box.size;
+		sdev->debug_box.size = BOX_SIZE_1024;
+
+		break;
+	}
+}
 int amd_sof_acp_probe(struct snd_sof_dev *sdev)
 {
 	struct pci_dev *pci = to_pci_dev(sdev->dev);
@@ -518,15 +551,7 @@ int amd_sof_acp_probe(struct snd_sof_dev *sdev)
 	if (ret < 0)
 		goto free_ipc_irq;
 
-	sdev->dsp_box.offset = 0;
-	sdev->dsp_box.size = BOX_SIZE_512;
-
-	sdev->host_box.offset = sdev->dsp_box.offset + sdev->dsp_box.size;
-	sdev->host_box.size = BOX_SIZE_512;
-
-	sdev->debug_box.offset = sdev->host_box.offset + sdev->host_box.size;
-	sdev->debug_box.size = BOX_SIZE_1024;
-
+	acp_set_window_offset(sdev, pci);
 	acp_memory_init(sdev);
 
 	acp_dsp_stream_init(sdev);
