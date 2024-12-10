@@ -178,6 +178,24 @@ struct drm_plane_state {
 	enum drm_color_range color_range;
 
 	/**
+	 * @chroma_siting_h:
+	 *
+	 * Location of chroma samples horizontally compared to luma
+	 * 0 means chroma is sited with left luma
+	 * 0x8000 is interstitial. 0x10000 is sited with right luma
+	 */
+	int32_t chroma_siting_h;
+
+	/**
+	 * @chroma_siting_v:
+	 *
+	 * Location of chroma samples vertically compared to luma
+	 * 0 means chroma is sited with top luma
+	 * 0x8000 is interstitial. 0x10000 is sited with bottom luma
+	 */
+	int32_t chroma_siting_v;
+
+	/**
 	 * @fb_damage_clips:
 	 *
 	 * Blob representing damage (area in plane framebuffer that changed
@@ -189,6 +207,16 @@ struct drm_plane_state {
 	 * drm_plane_get_damage_clips_count() for accessing these.
 	 */
 	struct drm_property_blob *fb_damage_clips;
+
+	/**
+	 * @ignore_damage_clips:
+	 *
+	 * Set by drivers to indicate the drm_atomic_helper_damage_iter_init()
+	 * helper that the @fb_damage_clips blob property should be ignored.
+	 *
+	 * See :ref:`damage_tracking_properties` for more information.
+	 */
+	bool ignore_damage_clips;
 
 	/**
 	 * @src:
@@ -748,6 +776,24 @@ struct drm_plane {
 	 * scaling.
 	 */
 	struct drm_property *scaling_filter_property;
+
+	/**
+	 * @chroma_siting_h_property:
+	 *
+	 * Optional "CHROMA_SITING_H" property for specifying
+	 * chroma siting for YUV formats.
+	 * See drm_plane_create_chroma_siting_properties().
+	 */
+	struct drm_property *chroma_siting_h_property;
+
+	/**
+	 * @chroma_siting_v_property:
+	 *
+	 * Optional "CHROMA_SITING_V" property for specifying
+	 * chroma siting for YUV formats.
+	 * See drm_plane_create_chroma_siting_properties().
+	 */
+	struct drm_property *chroma_siting_v_property;
 };
 
 #define obj_to_plane(x) container_of(x, struct drm_plane, base)
@@ -869,9 +915,9 @@ static inline unsigned int drm_plane_index(const struct drm_plane *plane)
  * drm_plane_mask - find the mask of a registered plane
  * @plane: plane to find mask for
  */
-static inline u32 drm_plane_mask(const struct drm_plane *plane)
+static inline u64 drm_plane_mask(const struct drm_plane *plane)
 {
-	return 1 << drm_plane_index(plane);
+	return 1ULL << drm_plane_index(plane);
 }
 
 struct drm_plane * drm_plane_from_index(struct drm_device *dev, int idx);

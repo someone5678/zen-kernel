@@ -57,6 +57,8 @@ static char *abort_sources[] = {
 		"slave lost the bus while transmitting data to a remote master",
 	[ABRT_SLAVE_RD_INTX] =
 		"incorrect slave-transmitter mode configuration",
+	[ABRT_SLAVE_SDA_STUCK_AT_LOW] =
+		"SDA stuck at low",
 };
 
 static int dw_reg_read(void *context, unsigned int reg, unsigned int *val)
@@ -318,6 +320,9 @@ void i2c_dw_adjust_bus_speed(struct dw_i2c_dev *dev)
 {
 	u32 acpi_speed = i2c_dw_acpi_round_bus_speed(dev->dev);
 	struct i2c_timings *t = &dev->timings;
+	u32 wanted_speed;
+	u32 legal_speed = 0;
+	int i;
 
 	/*
 	 * Find bus speed from the "clock-frequency" device property, ACPI
@@ -329,6 +334,30 @@ void i2c_dw_adjust_bus_speed(struct dw_i2c_dev *dev)
 		t->bus_freq_hz = max(t->bus_freq_hz, acpi_speed);
 	else
 		t->bus_freq_hz = I2C_MAX_FAST_MODE_FREQ;
+
+	wanted_speed = t->bus_freq_hz;
+
+	/* For unsupported speeds, scale down the lowest speed which is faster. */
+	for (i = 0; i < ARRAY_SIZE(supported_speeds); i++) {
+		/* supported speeds is in decreasing order */
+		if (wanted_speed == supported_speeds[i]) {
+			legal_speed = 0;
+			break;
+		}
+		if (wanted_speed > supported_speeds[i])
+			break;
+
+		legal_speed = supported_speeds[i];
+	}
+
+	if (legal_speed) {
+		/*
+		 * Pretend this was the requested speed, but preserve the preferred
+		 * speed so the clock counts can be scaled.
+		 */
+		t->bus_freq_hz = legal_speed;
+		dev->wanted_bus_speed = wanted_speed;
+	}
 }
 EXPORT_SYMBOL_GPL(i2c_dw_adjust_bus_speed);
 
@@ -441,7 +470,8 @@ err_release_lock:
 
 void __i2c_dw_disable(struct dw_i2c_dev *dev)
 {
-	unsigned int raw_intr_stats;
+	struct i2c_timings *t = &dev->timings;
+	unsigned int raw_intr_stats, ic_stats;
 	unsigned int enable;
 	int timeout = 100;
 	bool abort_needed;
@@ -449,10 +479,25 @@ void __i2c_dw_disable(struct dw_i2c_dev *dev)
 	int ret;
 
 	regmap_read(dev->map, DW_IC_RAW_INTR_STAT, &raw_intr_stats);
+	regmap_read(dev->map, DW_IC_STATUS, &ic_stats);
 	regmap_read(dev->map, DW_IC_ENABLE, &enable);
 
-	abort_needed = raw_intr_stats & DW_IC_INTR_MST_ON_HOLD;
+	abort_needed = (raw_intr_stats & DW_IC_INTR_MST_ON_HOLD) ||
+			(ic_stats & DW_IC_STATUS_MASTER_HOLD_TX_FIFO_EMPTY);
 	if (abort_needed) {
+		if (!(enable & DW_IC_ENABLE_ENABLE)) {
+			regmap_write(dev->map, DW_IC_ENABLE, DW_IC_ENABLE_ENABLE);
+			/*
+			 * Wait 10 times the signaling period of the highest I2C
+			 * transfer supported by the driver (for 400KHz this is
+			 * 25us) to ensure the I2C ENABLE bit is already set
+			 * as described in the DesignWare I2C databook.
+			 */
+			fsleep(DIV_ROUND_CLOSEST_ULL(10 * MICRO, t->bus_freq_hz));
+			/* Set ENABLE bit before setting ABORT */
+			enable |= DW_IC_ENABLE_ENABLE;
+		}
+
 		regmap_write(dev->map, DW_IC_ENABLE, enable | DW_IC_ENABLE_ABORT);
 		ret = regmap_read_poll_timeout(dev->map, DW_IC_ENABLE, enable,
 					       !(enable & DW_IC_ENABLE_ABORT), 10,
@@ -566,8 +611,16 @@ int i2c_dw_wait_bus_not_busy(struct dw_i2c_dev *dev)
 int i2c_dw_handle_tx_abort(struct dw_i2c_dev *dev)
 {
 	unsigned long abort_source = dev->abort_source;
+	unsigned int reg;
 	int i;
 
+	if (abort_source & DW_IC_TX_ABRT_SLAVE_SDA_STUCK_AT_LOW) {
+		regmap_write(dev->map, DW_IC_ENABLE,
+			     DW_IC_ENABLE_ENABLE | DW_IC_ENABLE_BUS_RECOVERY);
+		regmap_read_poll_timeout(dev->map, DW_IC_ENABLE, reg,
+					 !(reg & DW_IC_ENABLE_BUS_RECOVERY),
+					 1100, 200000);
+	}
 	if (abort_source & DW_IC_TX_ABRT_NOACK) {
 		for_each_set_bit(i, &abort_source, ARRAY_SIZE(abort_sources))
 			dev_dbg(dev->dev,
@@ -582,6 +635,8 @@ int i2c_dw_handle_tx_abort(struct dw_i2c_dev *dev)
 		return -EAGAIN;
 	else if (abort_source & DW_IC_TX_ABRT_GCALL_READ)
 		return -EINVAL; /* wrong msgs[] data */
+	else if (abort_source & DW_IC_TX_ABRT_SLAVE_SDA_STUCK_AT_LOW)
+		return -EREMOTEIO;
 	else
 		return -EIO;
 }

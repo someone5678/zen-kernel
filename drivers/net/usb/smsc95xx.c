@@ -79,6 +79,14 @@ static bool turbo_mode = true;
 module_param(turbo_mode, bool, 0644);
 MODULE_PARM_DESC(turbo_mode, "Enable multiple frames per Rx transaction");
 
+static int packetsize = 2560;
+module_param(packetsize, int, 0644);
+MODULE_PARM_DESC(packetsize, "Override the RX URB packet size");
+
+static char *macaddr = ":";
+module_param(macaddr, charp, 0);
+MODULE_PARM_DESC(macaddr, "MAC address");
+
 static int __must_check smsc95xx_read_reg(struct usbnet *dev, u32 index,
 					  u32 *data)
 {
@@ -801,6 +809,21 @@ static int smsc95xx_ioctl(struct net_device *netdev, struct ifreq *rq, int cmd)
 	return phy_mii_ioctl(netdev->phydev, rq, cmd);
 }
 
+/* Check the macaddr module parameter for a MAC address */
+static int smsc95xx_macaddr_param(struct usbnet *dev, struct net_device *nd)
+{
+	u8 mtbl[ETH_ALEN];
+
+	if (mac_pton(macaddr, mtbl)) {
+		netif_dbg(dev, ifup, dev->net,
+			  "Overriding MAC address with: %pM\n", mtbl);
+		dev_addr_mod(nd, 0, mtbl, ETH_ALEN);
+		return 0;
+	} else {
+		return -EINVAL;
+	}
+}
+
 static void smsc95xx_init_mac_address(struct usbnet *dev)
 {
 	u8 addr[ETH_ALEN];
@@ -820,6 +843,14 @@ static void smsc95xx_init_mac_address(struct usbnet *dev)
 		if (is_valid_ether_addr(dev->net->dev_addr)) {
 			/* eeprom values are valid so use them */
 			netif_dbg(dev, ifup, dev->net, "MAC address read from EEPROM\n");
+			return;
+		}
+	}
+
+	/* Check module parameters */
+	if (smsc95xx_macaddr_param(dev, dev->net) == 0) {
+		if (is_valid_ether_addr(dev->net->dev_addr)) {
+			netif_dbg(dev, ifup, dev->net, "MAC address read from module parameter\n");
 			return;
 		}
 	}
@@ -879,7 +910,7 @@ static int smsc95xx_start_rx_path(struct usbnet *dev)
 static int smsc95xx_reset(struct usbnet *dev)
 {
 	struct smsc95xx_priv *pdata = dev->driver_priv;
-	u32 read_buf, write_buf, burst_cap;
+	u32 read_buf, burst_cap;
 	int ret = 0, timeout;
 
 	netif_dbg(dev, ifup, dev->net, "entering smsc95xx_reset\n");
@@ -932,13 +963,13 @@ static int smsc95xx_reset(struct usbnet *dev)
 
 	if (!turbo_mode) {
 		burst_cap = 0;
-		dev->rx_urb_size = MAX_SINGLE_PACKET_SIZE;
+		dev->rx_urb_size = packetsize ? packetsize : MAX_SINGLE_PACKET_SIZE;
 	} else if (dev->udev->speed == USB_SPEED_HIGH) {
-		burst_cap = DEFAULT_HS_BURST_CAP_SIZE / HS_USB_PKT_SIZE;
-		dev->rx_urb_size = DEFAULT_HS_BURST_CAP_SIZE;
+		dev->rx_urb_size = packetsize ? packetsize : DEFAULT_HS_BURST_CAP_SIZE;
+		burst_cap = dev->rx_urb_size / HS_USB_PKT_SIZE;
 	} else {
-		burst_cap = DEFAULT_FS_BURST_CAP_SIZE / FS_USB_PKT_SIZE;
-		dev->rx_urb_size = DEFAULT_FS_BURST_CAP_SIZE;
+		dev->rx_urb_size = packetsize ? packetsize : DEFAULT_FS_BURST_CAP_SIZE;
+		burst_cap = dev->rx_urb_size / FS_USB_PKT_SIZE;
 	}
 
 	netif_dbg(dev, ifup, dev->net, "rx_urb_size=%ld\n",
@@ -1003,10 +1034,13 @@ static int smsc95xx_reset(struct usbnet *dev)
 		return ret;
 	netif_dbg(dev, ifup, dev->net, "ID_REV = 0x%08x\n", read_buf);
 
+	ret = smsc95xx_read_reg(dev, LED_GPIO_CFG, &read_buf);
+	if (ret < 0)
+		return ret;
 	/* Configure GPIO pins as LED outputs */
-	write_buf = LED_GPIO_CFG_SPD_LED | LED_GPIO_CFG_LNK_LED |
-		LED_GPIO_CFG_FDX_LED;
-	ret = smsc95xx_write_reg(dev, LED_GPIO_CFG, write_buf);
+	read_buf |= LED_GPIO_CFG_SPD_LED | LED_GPIO_CFG_LNK_LED |
+		    LED_GPIO_CFG_FDX_LED;
+	ret = smsc95xx_write_reg(dev, LED_GPIO_CFG, read_buf);
 	if (ret < 0)
 		return ret;
 
@@ -1810,9 +1844,11 @@ static int smsc95xx_reset_resume(struct usb_interface *intf)
 
 static void smsc95xx_rx_csum_offload(struct sk_buff *skb)
 {
-	skb->csum = *(u16 *)(skb_tail_pointer(skb) - 2);
+	u16 *csum_ptr = (u16 *)(skb_tail_pointer(skb) - 2);
+
+	skb->csum = (__force __wsum)get_unaligned(csum_ptr);
 	skb->ip_summed = CHECKSUM_COMPLETE;
-	skb_trim(skb, skb->len - 2);
+	skb_trim(skb, skb->len - 2); /* remove csum */
 }
 
 static int smsc95xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
@@ -1870,25 +1906,22 @@ static int smsc95xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 				if (dev->net->features & NETIF_F_RXCSUM)
 					smsc95xx_rx_csum_offload(skb);
 				skb_trim(skb, skb->len - 4); /* remove fcs */
-				skb->truesize = size + sizeof(struct sk_buff);
 
 				return 1;
 			}
 
-			ax_skb = skb_clone(skb, GFP_ATOMIC);
+			ax_skb = netdev_alloc_skb_ip_align(dev->net, size);
 			if (unlikely(!ax_skb)) {
 				netdev_warn(dev->net, "Error allocating skb\n");
 				return 0;
 			}
 
-			ax_skb->len = size;
-			ax_skb->data = packet;
-			skb_set_tail_pointer(ax_skb, size);
+			skb_put(ax_skb, size);
+			memcpy(ax_skb->data, packet, size);
 
 			if (dev->net->features & NETIF_F_RXCSUM)
 				smsc95xx_rx_csum_offload(ax_skb);
 			skb_trim(ax_skb, ax_skb->len - 4); /* remove fcs */
-			ax_skb->truesize = size + sizeof(struct sk_buff);
 
 			usbnet_skb_return(dev, ax_skb);
 		}
@@ -2103,6 +2136,11 @@ static const struct usb_device_id products[] = {
 		/* SMSC LAN89530 USB Ethernet Device */
 		USB_DEVICE(0x0424, 0x9E08),
 		.driver_info = (unsigned long) &smsc95xx_info,
+	},
+	{
+		/* SYSTEC USB-SPEmodule1 10BASE-T1L Ethernet Device */
+		USB_DEVICE(0x0878, 0x1400),
+		.driver_info = (unsigned long)&smsc95xx_info,
 	},
 	{
 		/* Microchip's EVB-LAN8670-USB 10BASE-T1S Ethernet Device */

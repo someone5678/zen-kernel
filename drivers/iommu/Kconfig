@@ -191,7 +191,7 @@ source "drivers/iommu/iommufd/Kconfig"
 config IRQ_REMAP
 	bool "Support for Interrupt Remapping"
 	depends on X86_64 && X86_IO_APIC && PCI_MSI && ACPI
-	select DMAR_TABLE
+	select DMAR_TABLE if INTEL_IOMMU
 	help
 	  Supports Interrupt remapping for IO-APIC and MSI devices.
 	  To use x2apic mode in the CPU's which support x2APIC enhancements or
@@ -493,5 +493,12 @@ config SPRD_IOMMU
 	  ISP(image), and CPP(camera pixel processor), etc.
 
 	  Say Y here if you want to use the multimedia devices listed above.
+
+config BCM2712_IOMMU
+       bool "BCM2712 IOMMU driver"
+       depends on ARM64 && ARCH_BCM
+       select IOMMU_API
+       help
+	 IOMMU driver for BCM2712
 
 endif # IOMMU_SUPPORT

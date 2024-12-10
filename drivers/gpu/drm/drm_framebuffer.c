@@ -570,7 +570,7 @@ int drm_mode_getfb2_ioctl(struct drm_device *dev,
 	struct drm_mode_fb_cmd2 *r = data;
 	struct drm_framebuffer *fb;
 	unsigned int i;
-	int ret;
+	int ret = 0;
 
 	if (!drm_core_check_feature(dev, DRIVER_MODESET))
 		return -EINVAL;
@@ -959,7 +959,7 @@ static int atomic_remove_fb(struct drm_framebuffer *fb)
 	struct drm_connector *conn __maybe_unused;
 	struct drm_connector_state *conn_state;
 	int i, ret;
-	unsigned plane_mask;
+	u64 plane_mask;
 	bool disable_crtcs = false;
 
 retry_disable:

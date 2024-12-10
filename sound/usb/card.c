@@ -382,6 +382,12 @@ static const struct usb_audio_device_name usb_audio_names[] = {
 	/* Creative/Toshiba Multimedia Center SB-0500 */
 	DEVICE_NAME(0x041e, 0x3048, "Toshiba", "SB-0500"),
 
+	/* Logitech Audio Devices */
+	DEVICE_NAME(0x046d, 0x0867, "Logitech, Inc.", "Logi-MeetUp"),
+	DEVICE_NAME(0x046d, 0x0874, "Logitech, Inc.", "Logi-Tap-Audio"),
+	DEVICE_NAME(0x046d, 0x087c, "Logitech, Inc.", "Logi-Huddle"),
+	DEVICE_NAME(0x046d, 0x0898, "Logitech, Inc.", "Logi-RB-Audio"),
+	DEVICE_NAME(0x046d, 0x08d2, "Logitech, Inc.", "Logi-RBM-Audio"),
 	DEVICE_NAME(0x046d, 0x0990, "Logitech, Inc.", "QuickCam Pro 9000"),
 
 	DEVICE_NAME(0x05e1, 0x0408, "Syntek", "STK1160"),
@@ -857,8 +863,14 @@ static int usb_audio_probe(struct usb_interface *intf,
 	if (ignore_ctl_error)
 		chip->quirk_flags |= QUIRK_FLAG_IGNORE_CTL_ERROR;
 
-	if (chip->quirk_flags & QUIRK_FLAG_DISABLE_AUTOSUSPEND)
+	if (chip->quirk_flags & QUIRK_FLAG_DISABLE_AUTOSUSPEND) {
+		/*
+		* Grab the interface, because on a webcam uvcvideo may race
+		* with snd-usb-audio during probe and re-enable autosuspend.
+		*/
+		usb_autopm_get_interface(intf);
 		usb_disable_autosuspend(interface_to_usbdev(intf));
+	}
 
 	/*
 	 * For devices with more than one control interface, we assume the

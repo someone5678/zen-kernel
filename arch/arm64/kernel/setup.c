@@ -225,9 +225,9 @@ static void __init request_standard_resources(void)
 	size_t res_size;
 
 	kernel_code.start   = __pa_symbol(_stext);
-	kernel_code.end     = __pa_symbol(__init_begin - 1);
+	kernel_code.end     = __pa_symbol(__init_begin) - 1;
 	kernel_data.start   = __pa_symbol(_sdata);
-	kernel_data.end     = __pa_symbol(_end - 1);
+	kernel_data.end     = __pa_symbol(_end) - 1;
 	insert_resource(&iomem_resource, &kernel_code);
 	insert_resource(&iomem_resource, &kernel_data);
 
@@ -370,9 +370,6 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 	init_bootcpu_ops();
 	smp_init_cpus();
 	smp_build_mpidr_hash();
-
-	/* Init percpu seeds for random tags after cpus are set up. */
-	kasan_init_sw_tags();
 
 #ifdef CONFIG_ARM64_SW_TTBR0_PAN
 	/*

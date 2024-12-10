@@ -14,6 +14,7 @@
 #include <drm/drm_panel.h>
 #include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
+#include <linux/backlight.h>
 
 struct panel_bridge {
 	struct drm_bridge bridge;
@@ -85,6 +86,11 @@ static int panel_bridge_attach(struct drm_bridge *bridge,
 
 	drm_connector_attach_encoder(&panel_bridge->connector,
 					  bridge->encoder);
+
+#if IS_REACHABLE(CONFIG_BACKLIGHT_CLASS_DEVICE)
+	backlight_set_display_name(panel_bridge->panel->backlight,
+				   panel_bridge->connector.name);
+#endif
 
 	if (bridge->dev->registered) {
 		if (connector->funcs->reset)
@@ -360,9 +366,12 @@ EXPORT_SYMBOL(drm_panel_bridge_set_orientation);
 
 static void devm_drm_panel_bridge_release(struct device *dev, void *res)
 {
-	struct drm_bridge **bridge = res;
+	struct drm_bridge *bridge = *(struct drm_bridge **)res;
 
-	drm_panel_bridge_remove(*bridge);
+	if (!bridge)
+		return;
+
+	drm_bridge_remove(bridge);
 }
 
 /**

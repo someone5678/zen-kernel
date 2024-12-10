@@ -2200,10 +2200,7 @@ struct folio *vma_alloc_folio(gfp_t gfp, int order, struct vm_area_struct *vma,
 		mpol_cond_put(pol);
 		gfp |= __GFP_COMP;
 		page = alloc_page_interleave(gfp, order, nid);
-		folio = (struct folio *)page;
-		if (folio && order > 1)
-			folio_prep_large_rmappable(folio);
-		goto out;
+		return page_rmappable_folio(page);
 	}
 
 	if (pol->mode == MPOL_PREFERRED_MANY) {
@@ -2213,10 +2210,7 @@ struct folio *vma_alloc_folio(gfp_t gfp, int order, struct vm_area_struct *vma,
 		gfp |= __GFP_COMP;
 		page = alloc_pages_preferred_many(gfp, order, node, pol);
 		mpol_cond_put(pol);
-		folio = (struct folio *)page;
-		if (folio && order > 1)
-			folio_prep_large_rmappable(folio);
-		goto out;
+		return page_rmappable_folio(page);
 	}
 
 	if (unlikely(IS_ENABLED(CONFIG_TRANSPARENT_HUGEPAGE) && hugepage)) {
@@ -2310,12 +2304,7 @@ EXPORT_SYMBOL(alloc_pages);
 
 struct folio *folio_alloc(gfp_t gfp, unsigned order)
 {
-	struct page *page = alloc_pages(gfp | __GFP_COMP, order);
-	struct folio *folio = (struct folio *)page;
-
-	if (folio && order > 1)
-		folio_prep_large_rmappable(folio);
-	return folio;
+	return page_rmappable_folio(alloc_pages(gfp | __GFP_COMP, order));
 }
 EXPORT_SYMBOL(folio_alloc);
 
@@ -2974,7 +2963,9 @@ void __init numa_policy_init(void)
 /* Reset policy of current process to default */
 void numa_default_policy(void)
 {
-	do_set_mempolicy(MPOL_DEFAULT, 0, NULL);
+	struct mempolicy *pol = &default_policy;
+
+	do_set_mempolicy(pol->mode, pol->flags, &pol->nodes);
 }
 
 /*
@@ -2992,7 +2983,6 @@ static const char * const policy_modes[] =
 };
 
 
-#ifdef CONFIG_TMPFS
 /**
  * mpol_parse_str - parse string to mempolicy, for tmpfs mpol mount option.
  * @str:  string containing mempolicy to parse
@@ -3005,12 +2995,17 @@ static const char * const policy_modes[] =
  */
 int mpol_parse_str(char *str, struct mempolicy **mpol)
 {
-	struct mempolicy *new = NULL;
+	struct mempolicy *new;
 	unsigned short mode_flags;
 	nodemask_t nodes;
 	char *nodelist = strchr(str, ':');
 	char *flags = strchr(str, '=');
 	int err = 1, mode;
+
+	if (*mpol)
+		new = *mpol;
+	else
+		new = NULL;
 
 	if (flags)
 		*flags++ = '\0';	/* terminate mode string */
@@ -3090,9 +3085,16 @@ int mpol_parse_str(char *str, struct mempolicy **mpol)
 			goto out;
 	}
 
-	new = mpol_new(mode, mode_flags, &nodes);
-	if (IS_ERR(new))
-		goto out;
+	if (!new) {
+		new = mpol_new(mode, mode_flags, &nodes);
+		if (IS_ERR(new))
+			goto out;
+	} else {
+		atomic_set(&new->refcnt, 1);
+		new->mode = mode;
+		new->flags = mode_flags;
+		new->home_node = NUMA_NO_NODE;
+	}
 
 	/*
 	 * Save nodes for mpol_to_str() to show the tmpfs mount options
@@ -3125,7 +3127,29 @@ out:
 		*mpol = new;
 	return err;
 }
-#endif /* CONFIG_TMPFS */
+
+static int __init setup_numapolicy(char *str)
+{
+	struct mempolicy pol = { }, *ppol = &pol;
+	char buf[128];
+	int ret;
+
+	if (str)
+		ret = mpol_parse_str(str, &ppol);
+	else
+		ret = -EINVAL;
+
+	if (!ret) {
+		default_policy = pol;
+		mpol_to_str(buf, sizeof(buf), &pol);
+		pr_info("NUMA default policy overridden to '%s'\n", buf);
+	} else {
+		pr_warn("Unable to parse numa_policy=\n");
+	}
+
+	return ret == 0;
+}
+__setup("numa_policy=", setup_numapolicy);
 
 /**
  * mpol_to_str - format a mempolicy structure for printing
@@ -3134,8 +3158,9 @@ out:
  * @pol:  pointer to mempolicy to be formatted
  *
  * Convert @pol into a string.  If @buffer is too short, truncate the string.
- * Recommend a @maxlen of at least 32 for the longest mode, "interleave", the
- * longest flag, "relative", and to display at least a few node ids.
+ * Recommend a @maxlen of at least 51 for the longest mode, "weighted
+ * interleave", plus the longest flag flags, "relative|balancing", and to
+ * display at least a few node ids.
  */
 void mpol_to_str(char *buffer, int maxlen, struct mempolicy *pol)
 {
@@ -3144,7 +3169,10 @@ void mpol_to_str(char *buffer, int maxlen, struct mempolicy *pol)
 	unsigned short mode = MPOL_DEFAULT;
 	unsigned short flags = 0;
 
-	if (pol && pol != &default_policy && !(pol->flags & MPOL_F_MORON)) {
+	if (pol &&
+	    pol != &default_policy &&
+	    !(pol >= &preferred_node_policy[0] &&
+	      pol <= &preferred_node_policy[ARRAY_SIZE(preferred_node_policy) - 1])) {
 		mode = pol->mode;
 		flags = pol->flags;
 	}
@@ -3171,12 +3199,18 @@ void mpol_to_str(char *buffer, int maxlen, struct mempolicy *pol)
 		p += snprintf(p, buffer + maxlen - p, "=");
 
 		/*
-		 * Currently, the only defined flags are mutually exclusive
+		 * Static and relative are mutually exclusive.
 		 */
 		if (flags & MPOL_F_STATIC_NODES)
 			p += snprintf(p, buffer + maxlen - p, "static");
 		else if (flags & MPOL_F_RELATIVE_NODES)
 			p += snprintf(p, buffer + maxlen - p, "relative");
+
+		if (flags & MPOL_F_NUMA_BALANCING) {
+			if (!is_power_of_2(flags & MPOL_MODE_FLAGS))
+				p += snprintf(p, buffer + maxlen - p, "|");
+			p += snprintf(p, buffer + maxlen - p, "balancing");
+		}
 	}
 
 	if (!nodes_empty(nodes))

@@ -1007,10 +1007,12 @@ static int mmc_select_bus_width(struct mmc_card *card)
 	static unsigned ext_csd_bits[] = {
 		EXT_CSD_BUS_WIDTH_8,
 		EXT_CSD_BUS_WIDTH_4,
+		EXT_CSD_BUS_WIDTH_1,
 	};
 	static unsigned bus_widths[] = {
 		MMC_BUS_WIDTH_8,
 		MMC_BUS_WIDTH_4,
+		MMC_BUS_WIDTH_1,
 	};
 	struct mmc_host *host = card->host;
 	unsigned idx, bus_width = 0;
@@ -1661,6 +1663,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		card->ocr = ocr;
 		card->type = MMC_TYPE_MMC;
 		card->rca = 1;
+		card->max_posted_writes = 1;
 		memcpy(card->raw_cid, cid, sizeof(card->raw_cid));
 	}
 
@@ -1817,8 +1820,13 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 
 		if (err)
 			goto free_card;
-
-	} else if (!mmc_card_hs400es(card)) {
+	} else if (mmc_card_hs400es(card)) {
+		if (host->ops->execute_hs400_tuning) {
+			err = host->ops->execute_hs400_tuning(host, card);
+			if (err)
+				goto free_card;
+		}
+	} else {
 		/* Select the desired bus width optionally */
 		err = mmc_select_bus_width(card);
 		if (err > 0 && mmc_card_hs(card)) {
@@ -1908,13 +1916,14 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 			host->cqe_enabled = true;
 
 			if (card->ext_csd.cmdq_en) {
-				pr_info("%s: Command Queue Engine enabled\n",
-					mmc_hostname(host));
+				pr_info("%s: Command Queue Engine enabled, %u tags\n",
+					mmc_hostname(host), card->ext_csd.cmdq_depth);
 			} else {
 				host->hsq_enabled = true;
 				pr_info("%s: Host Software Queue enabled\n",
 					mmc_hostname(host));
 			}
+			card->max_posted_writes = card->ext_csd.cmdq_depth;
 		}
 	}
 

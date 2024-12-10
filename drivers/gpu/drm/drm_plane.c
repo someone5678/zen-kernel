@@ -249,7 +249,7 @@ static int __drm_universal_plane_init(struct drm_device *dev,
 	int ret;
 
 	/* plane index is used with 32bit bitmasks */
-	if (WARN_ON(config->num_total_plane >= 32))
+	if (WARN_ON(config->num_total_plane >= 64))
 		return -EINVAL;
 
 	/*
@@ -676,6 +676,19 @@ int drm_mode_getplane_res(struct drm_device *dev, void *data,
 		 */
 		if (plane->type != DRM_PLANE_TYPE_OVERLAY &&
 		    !file_priv->universal_planes)
+			continue;
+
+		/*
+		 * If we're running on a virtualized driver then,
+		 * unless userspace advertizes support for the
+		 * virtualized cursor plane, disable cursor planes
+		 * because they'll be broken due to missing cursor
+		 * hotspot info.
+		 */
+		if (plane->type == DRM_PLANE_TYPE_CURSOR &&
+		    drm_core_check_feature(dev, DRIVER_CURSOR_HOTSPOT) &&
+		    file_priv->atomic &&
+		    !file_priv->supports_virtualized_cursor_plane)
 			continue;
 
 		if (drm_lease_held(file_priv, plane->base.id)) {
@@ -1387,6 +1400,7 @@ retry:
 out:
 	if (fb)
 		drm_framebuffer_put(fb);
+	fb = NULL;
 	if (plane->old_fb)
 		drm_framebuffer_put(plane->old_fb);
 	plane->old_fb = NULL;
